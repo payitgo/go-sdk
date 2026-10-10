@@ -28,7 +28,7 @@ import (
 const Version = "0.1.0"
 
 // defaultBaseURL is used when neither WithBaseURL nor PAYITGO_BASE_URL is set.
-const defaultBaseURL = ""
+const defaultBaseURL = "https://api.payitgo.co"
 
 // Payment statuses.
 const (
