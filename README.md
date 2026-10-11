@@ -5,13 +5,13 @@ Accept crypto payments with [payitgo](https://api.payitgo.co/docs) from Go. Stan
 Full reference, with every method, option, type and error: [api.payitgo.co/docs/sdk-go](https://api.payitgo.co/docs/sdk-go).
 
 ```bash
-go get github.com/thedivinez/payitgo-sdk/go
+go get github.com/payitgo/go-sdk
 ```
 
 ## Accept a payment in three steps
 
 ```go
-import payitgo "github.com/thedivinez/payitgo-sdk/go"
+import payitgo "github.com/payitgo/go-sdk"
 
 client, err := payitgo.NewClient(os.Getenv("PAYITGO_KEY"),
 	payitgo.WithBaseURL(os.Getenv("PAYITGO_BASE_URL")),
