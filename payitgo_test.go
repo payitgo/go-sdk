@@ -240,7 +240,7 @@ const testChosen = `{"id":"pay_1","merchant_id":"mch_1","order_id":"ORD-7","stat
 	`"usd_amount":"10","amount_due_usd":"10","fees_paid_by_customer":false,"network_fee":"0.000012","network_fee_usd":"0.01",` +
 	`"settlement":"custodial","received_usd":"0","rate_locked":"0.5","deposits":[],"expires_at":"2026-10-10T12:15:00Z",` +
 	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"XRP Ledger testnet: test XRP only. Include destination tag — required.",` +
-	`"qr_payload":"xrpl:rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe?amount=20.000000&dt=1042","checkout_token":"ct_abc",` +
+	`"qr_payload":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","checkout_token":"ct_abc",` +
 	`"checkout_url":"https://pay.example/ct_abc","description":"Order 7","metadata":{"cart":"42"}}`
 
 func TestTokensList(t *testing.T) {
@@ -269,7 +269,7 @@ func TestPaymentsSelectToken(t *testing.T) {
 	}
 	if p.Token != "XRP" || p.Chain != "xrp" || p.DepositAddress != "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe" ||
 		p.DestinationTag == nil || *p.DestinationTag != 1042 || p.CryptoAmount != "20" || p.RateLocked != "0.5" ||
-		p.QRPayload != "xrpl:rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe?amount=20.000000&dt=1042" ||
+		p.QRPayload != "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe" ||
 		!p.ExpiresAt.Equal(time.Date(2026, 10, 10, 12, 15, 0, 0, time.UTC)) || p.CheckoutToken != "ct_abc" ||
 		p.CheckoutURL != "https://pay.example/ct_abc" || p.Metadata["cart"] != "42" {
 		t.Errorf("payment %+v", p)
