@@ -41,6 +41,32 @@ const (
 	StatusFailed        = "failed"
 )
 
+// Simulated outcomes, for a test payment's PaymentParams.Simulate or
+// PaymentsService.Simulate.
+const (
+	OutcomeConfirmed     = "confirmed"
+	OutcomeOverpaid      = "overpaid"
+	OutcomePartiallyPaid = "partially_paid"
+	OutcomeUnderpaid     = "underpaid"
+	OutcomeExpired       = "expired"
+	OutcomeFailed        = "failed"
+	OutcomeWrongAsset    = "wrong_asset"
+	OutcomePaidLate      = "paid_late"
+)
+
+// Simulation states.
+const (
+	SimulationRequested = "requested" // asked for on create, waiting for the coin
+	SimulationRunning   = "running"
+	SimulationDone      = "done"
+)
+
+// Simulation is a test payment's simulated outcome and how far it is.
+type Simulation struct {
+	Outcome string `json:"outcome"` // an Outcome… constant
+	State   string `json:"state"`   // a Simulation… constant
+}
+
 // Deposit is one transfer to a payment's address.
 type Deposit struct {
 	TxID  string `json:"tx_id"`
@@ -66,6 +92,9 @@ type Deposit struct {
 	// "confirmation timeout") say when and why a deposit never became final.
 	FailedAt   *time.Time `json:"failed_at,omitempty"`
 	FailReason string     `json:"fail_reason,omitempty"`
+	// Simulated is true for a deposit a test payment's simulation played: its
+	// TxID starts with "sim_" and names no transaction on any chain.
+	Simulated bool `json:"simulated,omitempty"`
 }
 
 // Payment is a payment as the API returns it. Amounts are decimal strings.
@@ -76,6 +105,8 @@ type Payment struct {
 	OrderID    string `json:"order_id"`
 	Status     string `json:"status"`
 	Livemode   bool   `json:"livemode"`
+	// Simulation is set on a test payment that has a simulated outcome.
+	Simulation *Simulation `json:"simulation,omitempty"`
 	// Token and Chain are empty until the customer chooses the coin, from
 	// TokenOptions.
 	Token              string            `json:"token"`
@@ -117,6 +148,8 @@ type Payment struct {
 // Tokens (default: every token the amount reaches the minimum of).
 // WebhookURL (https) gets the payment's events instead of the webhook's URL,
 // signed with the same secret; empty means the client's WithWebhookURL.
+// Simulate (an Outcome… constant, test keys only) plays that outcome on the
+// test payment once it has its coin.
 type PaymentParams struct {
 	OrderID       string            `json:"order_id"`
 	AmountUSD     string            `json:"amount_usd"` // decimal, e.g. "19.99"
@@ -128,6 +161,7 @@ type PaymentParams struct {
 	SuccessURL    string            `json:"success_url,omitempty"`
 	CancelURL     string            `json:"cancel_url,omitempty"`
 	WebhookURL    string            `json:"webhook_url,omitempty"`
+	Simulate      string            `json:"simulate,omitempty"`
 }
 
 // ListParams narrows a payment listing; zero values are left out. StoreID
@@ -277,6 +311,17 @@ func (s *PaymentsService) SelectToken(ctx context.Context, id, token string) (*P
 	var out Payment
 	body := map[string]string{"token": token}
 	return &out, s.c.do(ctx, http.MethodPost, "/v1/payments/"+url.PathEscape(id)+"/token", body, &out, true)
+}
+
+// Simulate plays outcome (an Outcome… constant) on a test payment: payitgo
+// sends its deposits, status changes and webhooks a few seconds apart, with
+// no coins. id is the payment's id (pay_…) or your order id. The payment
+// comes back whole, with its Simulation. A live payment is an *Error with
+// Status 400; a simulation that is still running, 409.
+func (s *PaymentsService) Simulate(ctx context.Context, id, outcome string) (*Payment, error) {
+	var out Payment
+	body := map[string]string{"outcome": outcome}
+	return &out, s.c.do(ctx, http.MethodPost, "/v1/payments/"+url.PathEscape(id)+"/simulate", body, &out, true)
 }
 
 // List returns payments of the key's mode, newest first.

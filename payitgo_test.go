@@ -239,7 +239,7 @@ const testChosen = `{"id":"pay_1","merchant_id":"mch_1","order_id":"ORD-7","stat
 	`"deposit_address":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","destination_tag":1042,"crypto_amount":"20","received_amount":"0",` +
 	`"usd_amount":"10","amount_due_usd":"10","fees_paid_by_customer":false,"network_fee":"0.000012","network_fee_usd":"0.01",` +
 	`"settlement":"custodial","received_usd":"0","rate_locked":"0.5","deposits":[],"expires_at":"2026-10-10T12:15:00Z",` +
-	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"XRP Ledger testnet: test XRP only. Include destination tag — required.",` +
+	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Near-zero fees. Include destination tag — required.",` +
 	`"qr_payload":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","checkout_token":"ct_abc",` +
 	`"checkout_url":"https://pay.example/ct_abc","description":"Order 7","metadata":{"cart":"42"}}`
 
@@ -295,6 +295,78 @@ func TestPaymentsSelectTokenChosen(t *testing.T) {
 	var perr *Error
 	if _, err := c.Payments.SelectToken(context.Background(), "pay_1", "XRP"); !errors.As(err, &perr) || perr.Status != http.StatusConflict || perr.Message != message {
 		t.Errorf("err %v", err)
+	}
+}
+
+// testSimulated is a test payment whose simulated outcome has paid it.
+const testSimulated = `{"id":"pay_2","merchant_id":"mch_1","order_id":"ORD-8","status":"detecting","livemode":false,` +
+	`"simulation":{"outcome":"confirmed","state":"running"},"token":"USDT_TRC20","chain":"tron",` +
+	`"deposit_address":"TPk2bpQqWRpXiaUHS9SXnZCDgvwrsuJ71o","crypto_amount":"20","received_amount":"20",` +
+	`"usd_amount":"20","amount_due_usd":"20","fees_paid_by_customer":false,"network_fee":"1","network_fee_usd":"0.3",` +
+	`"settlement":"custodial","received_usd":"20","rate_locked":"1","deposits":[{"tx_id":"sim_pay_2_1791817211348_0",` +
+	`"token":"USDT_TRC20","chain":"tron","amount":"20","usd_value":"20","counted":true,"status":"pending",` +
+	`"seen_at":"2026-10-10T12:00:05Z","simulated":true}],"expires_at":"2026-10-10T12:15:00Z",` +
+	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Near-zero fees on Tron. Fastest settlement.",` +
+	`"qr_payload":"TPk2bpQqWRpXiaUHS9SXnZCDgvwrsuJ71o"}`
+
+func TestPaymentsSimulate(t *testing.T) {
+	c, rec := fakeGateway(t, http.StatusOK, testSimulated)
+	p, err := c.Payments.Simulate(context.Background(), "pay_2", OutcomeConfirmed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/v1/payments/pay_2/simulate" || rec.auth != "Bearer sk_test_abc" || rec.contentType != "application/json" {
+		t.Errorf("request %+v", rec)
+	}
+	if want := map[string]any{"outcome": "confirmed"}; !reflect.DeepEqual(rec.body, want) {
+		t.Errorf("body %v, want %v", rec.body, want)
+	}
+	if p.Simulation == nil || p.Simulation.Outcome != OutcomeConfirmed || p.Simulation.State != SimulationRunning ||
+		len(p.Deposits) != 1 || !p.Deposits[0].Simulated || !strings.HasPrefix(p.Deposits[0].TxID, "sim_") {
+		t.Errorf("payment %+v", p)
+	}
+	// Every field the gateway sent is in the Payment.
+	var sent, got map[string]any
+	back, _ := json.Marshal(p)
+	if err := json.Unmarshal([]byte(testSimulated), &sent); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(back, &got); err != nil || !reflect.DeepEqual(got, sent) {
+		t.Errorf("payment %s, want %s (%v)", back, testSimulated, err)
+	}
+	// An order id is escaped in the path, as Get does.
+	if _, err := c.Payments.Simulate(context.Background(), "ORD 8/1", OutcomeExpired); err != nil || rec.path != "/v1/payments/ORD%208%2F1/simulate" {
+		t.Errorf("order id: path %s, err %v", rec.path, err)
+	}
+}
+
+func TestPaymentsSimulateRunning(t *testing.T) {
+	const message = "a simulation is already running for this payment"
+	c, _ := fakeGateway(t, http.StatusConflict, `{"error":"`+message+`"}`)
+	var perr *Error
+	if _, err := c.Payments.Simulate(context.Background(), "pay_2", OutcomeConfirmed); !errors.As(err, &perr) || perr.Status != http.StatusConflict || perr.Message != message {
+		t.Errorf("err %v", err)
+	}
+}
+
+func TestPaymentsCreateSimulate(t *testing.T) {
+	c, rec := fakeGateway(t, http.StatusCreated, testSimulated)
+	p, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-8", AmountUSD: "20", Token: "USDT_TRC20", Simulate: OutcomeConfirmed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/v1/payments" || rec.body["simulate"] != "confirmed" {
+		t.Errorf("sent %v to %s %s", rec.body, rec.method, rec.path)
+	}
+	if p.Simulation == nil || p.Simulation.Outcome != OutcomeConfirmed {
+		t.Errorf("payment %+v", p)
+	}
+	// Without Simulate, the field is left out.
+	if _, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-9", AmountUSD: "20"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rec.body["simulate"]; ok {
+		t.Errorf("sent %v", rec.body)
 	}
 }
 

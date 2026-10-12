@@ -50,8 +50,8 @@ func ipn(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-Start with your test key (`sk_test_…`) and testnet coins; switch to the live key
-(`sk_live_…`) when the account owner has turned live mode on.
+Start with your test key (`sk_test_…`), where you [simulate](#test-mode) what the customer
+pays; switch to the live key (`sk_live_…`) when the account owner has turned live mode on.
 
 ## Your own payment page
 
@@ -77,6 +77,29 @@ chosen, err := client.Payments.SelectToken(ctx, payment.ID, "USDT_TRC20") // or 
 The coin is chosen once: choosing again is a `409` (`Payments.Get` then returns the payment
 with its coin). A coin outside `TokenOptions`, or a payment that can no longer be paid, is
 a `400`.
+
+## Test mode
+
+A test payment gets an address like a live one, but no coins are involved: you choose an
+outcome and payitgo plays its deposits, status changes and webhooks a few seconds apart
+([Test mode](https://api.payitgo.co/docs/testing)).
+
+```go
+// Choose the outcome when you create the payment (with Token it starts at once,
+// without it once the coin is chosen)…
+payment, err := client.Payments.Create(ctx, &payitgo.PaymentParams{
+	OrderID: "TEST-1", AmountUSD: "10", Token: "USDT_TRC20", Simulate: payitgo.OutcomeConfirmed,
+})
+
+// …or later, on a payment you already have (its id or your order id).
+payment, err = client.Payments.Simulate(ctx, "TEST-2", payitgo.OutcomePartiallyPaid)
+// payment.Simulation: {Outcome: "partially_paid", State: "running"}
+```
+
+Outcomes (`payitgo.Outcome…`): `confirmed`, `overpaid`, `partially_paid`, `underpaid`,
+`expired`, `failed`, `wrong_asset`, `paid_late`. Simulated deposits have `Simulated: true`
+and a `TxID` starting with `sim_`. A live key gets `400`; a payment whose simulation is still
+running, `409`.
 
 ## Webhooks (IPN)
 
@@ -166,8 +189,9 @@ client, err := payitgo.NewClient(apiKey,
 )
 
 client.Livemode                                   // false for sk_test_ keys
-client.Payments.Create(ctx, &payitgo.PaymentParams{...}) // OrderID, AmountUSD, Token, …, WebhookURL
+client.Payments.Create(ctx, &payitgo.PaymentParams{...}) // OrderID, AmountUSD, Token, …, WebhookURL, Simulate
 client.Payments.SelectToken(ctx, "pay_…", token)  // or your order id: the payment with its coin
+client.Payments.Simulate(ctx, "pay_…", payitgo.OutcomeConfirmed) // test keys: plays the outcome
 client.Payments.Get(ctx, "pay_…")                 // or your order id
 client.Payments.List(ctx, &payitgo.ListParams{Status: payitgo.StatusConfirmed, StoreID: "sto_…", Limit: 50})
 client.Tokens.List(ctx, nil)                                            // every token
