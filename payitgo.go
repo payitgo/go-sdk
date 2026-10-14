@@ -302,7 +302,7 @@ func (s *PaymentsService) Create(ctx context.Context, p *PaymentParams) (*Paymen
 	return &out, s.c.do(ctx, http.MethodPost, "/v1/payments", p, &out, true)
 }
 
-// Get returns a payment by its id (pay_…) or by your order id (the order's
+// Get returns a payment by its id or by your order id (the order's
 // open payment).
 func (s *PaymentsService) Get(ctx context.Context, id string) (*Payment, error) {
 	var out Payment
@@ -311,7 +311,7 @@ func (s *PaymentsService) Get(ctx context.Context, id string) (*Payment, error) 
 
 // SelectToken sets the coin of a payment created without one, when the
 // customer chose it on your own page: one of its TokenOptions. id is the
-// payment's id (pay_…) or your order id. The payment comes back whole, now
+// payment's id or your order id. The payment comes back whole, now
 // with its address, amount, locked rate and a deadline 15 minutes away. The
 // coin is chosen once: choosing again is an *Error with Status 409.
 func (s *PaymentsService) SelectToken(ctx context.Context, id, token string) (*Payment, error) {
@@ -322,7 +322,7 @@ func (s *PaymentsService) SelectToken(ctx context.Context, id, token string) (*P
 
 // Simulate plays outcome (an Outcome… constant) on a test payment: payitgo
 // sends its deposits, status changes and webhooks a few seconds apart, with
-// no coins. id is the payment's id (pay_…) or your order id. The payment
+// no coins. id is the payment's id or your order id. The payment
 // comes back whole, with its Simulation. A live payment is an *Error with
 // Status 400; a simulation that is still running, 409.
 func (s *PaymentsService) Simulate(ctx context.Context, id, outcome string) (*Payment, error) {

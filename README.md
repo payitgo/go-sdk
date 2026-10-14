@@ -209,10 +209,10 @@ client, err := payitgo.NewClient(apiKey,
 
 client.Livemode                                   // false for sk_test_ keys
 client.Payments.Create(ctx, &payitgo.PaymentParams{...}) // OrderID, AmountUSD (or PriceAmount + PriceCurrency), Token, …, WebhookURL, Simulate
-client.Payments.SelectToken(ctx, "pay_…", token)  // or your order id: the payment with its coin
-client.Payments.Simulate(ctx, "pay_…", payitgo.OutcomeConfirmed) // test keys: plays the outcome
-client.Payments.Get(ctx, "pay_…")                 // or your order id
-client.Payments.List(ctx, &payitgo.ListParams{Status: payitgo.StatusConfirmed, StoreID: "sto_…", Limit: 50})
+client.Payments.SelectToken(ctx, paymentID, token) // or your order id: the payment with its coin
+client.Payments.Simulate(ctx, paymentID, payitgo.OutcomeConfirmed) // test keys: plays the outcome
+client.Payments.Get(ctx, paymentID)               // or your order id
+client.Payments.List(ctx, &payitgo.ListParams{Status: payitgo.StatusConfirmed, StoreID: storeID, Limit: 50})
 client.Tokens.List(ctx, nil)                                            // every token
 client.Tokens.List(ctx, &payitgo.TokenListParams{AmountUSD: "49.90"})    // the coins a $49.90 payment offers, with AmountDueUSD
 client.Checkout.Get(ctx, checkoutToken)           // public payer view
