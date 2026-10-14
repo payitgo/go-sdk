@@ -370,6 +370,69 @@ func TestPaymentsCreateSimulate(t *testing.T) {
 	}
 }
 
+// testPriced is a payment priced in euros: the gateway converted the price
+// into usd_amount at price_rate.
+const testPriced = `{"id":"pay_3","merchant_id":"mch_1","order_id":"ORD-10","status":"pending","livemode":false,"token":"","chain":"",` +
+	`"deposit_address":"","crypto_amount":"0","received_amount":"0","usd_amount":"49.23","price_amount":"45.5",` +
+	`"price_currency":"EUR","price_rate":"1.082","amount_due_usd":"49.23","fees_paid_by_customer":false,"network_fee":"0",` +
+	`"network_fee_usd":"0","settlement":"custodial","received_usd":"0","rate_locked":"0","deposits":[],` +
+	`"expires_at":"2026-10-10T13:00:00Z","created_at":"2026-10-10T12:00:00Z","network_fee_note":"","qr_payload":""}`
+
+func TestPaymentsCreatePrice(t *testing.T) {
+	c, rec := fakeGateway(t, http.StatusCreated, testPriced)
+	p, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-10", PriceAmount: "45.50", PriceCurrency: "EUR"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The price goes as decimal strings, and no amount_usd with it.
+	if want := map[string]any{"order_id": "ORD-10", "price_amount": "45.50", "price_currency": "EUR"}; !reflect.DeepEqual(rec.body, want) {
+		t.Errorf("body %v, want %v", rec.body, want)
+	}
+	if p.PriceAmount != "45.5" || p.PriceCurrency != "EUR" || p.PriceRate != "1.082" || p.USDAmount != "49.23" {
+		t.Errorf("payment %+v", p)
+	}
+	// Every field the gateway sent is in the Payment.
+	var sent, got map[string]any
+	back, _ := json.Marshal(p)
+	if err := json.Unmarshal([]byte(testPriced), &sent); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(back, &got); err != nil || !reflect.DeepEqual(got, sent) {
+		t.Errorf("payment %s, want %s (%v)", back, testPriced, err)
+	}
+	// Priced in dollars: amount_usd as before, and none of the price fields.
+	if _, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-11", AmountUSD: "10"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{"order_id": "ORD-11", "amount_usd": "10"}; !reflect.DeepEqual(rec.body, want) {
+		t.Errorf("body %v, want %v", rec.body, want)
+	}
+	var dollars Payment
+	if err := json.Unmarshal([]byte(testChosen), &dollars); err != nil || dollars.PriceAmount != "" || dollars.PriceCurrency != "" || dollars.PriceRate != "" {
+		t.Errorf("a payment in dollars: %+v %v", dollars, err)
+	}
+}
+
+func TestPaymentsCreatePriceErrors(t *testing.T) {
+	cases := []struct {
+		status  int
+		message string
+	}{
+		{http.StatusBadRequest, "give amount_usd, or price_amount and price_currency: not both"},
+		{http.StatusBadRequest, "price_currency must be the ISO 4217 code of a currency (EUR, GBP, NGN…)"},
+		{http.StatusServiceUnavailable, "exchange rate unavailable for price_currency: try again shortly"},
+	}
+	for _, tc := range cases {
+		reply, _ := json.Marshal(map[string]string{"error": tc.message})
+		c, _ := fakeGateway(t, tc.status, string(reply))
+		var perr *Error
+		_, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-12", PriceAmount: "45.50", PriceCurrency: "EUR"})
+		if !errors.As(err, &perr) || perr.Status != tc.status || perr.Message != tc.message {
+			t.Errorf("%d: err %v", tc.status, err)
+		}
+	}
+}
+
 func TestClientConstructEvent(t *testing.T) {
 	fresh := sign(testSecret, time.Now().Unix(), testBody)
 	c, _ := NewClient("sk_test_abc", WithBaseURL("http://x"), WithWebhookSecret(testSecret))

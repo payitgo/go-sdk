@@ -53,6 +53,25 @@ func ipn(w http.ResponseWriter, r *http.Request) {
 Start with your test key (`sk_test_…`), where you [simulate](#test-mode) what the customer
 pays; switch to the live key (`sk_live_…`) when the account owner has turned live mode on.
 
+## Prices in other currencies
+
+To price a payment in your own currency, give `PriceAmount` and `PriceCurrency` (an ISO 4217
+code such as `EUR`, `GBP` or `NGN`) instead of `AmountUSD`. payitgo converts the price into
+dollars at the rate of the moment, and the payment keeps both:
+
+```go
+payment, err := client.Payments.Create(ctx, &payitgo.PaymentParams{
+	OrderID: "ORD-1002", PriceAmount: "45.50", PriceCurrency: "EUR", // decimal string, any case
+})
+// payment.PriceAmount "45.5", payment.PriceCurrency "EUR",
+// payment.PriceRate "1.082" (dollars per euro), payment.USDAmount "49.23"
+```
+
+Everything else (`USDAmount`, `CryptoAmount`, fees, minimums) stays in dollars; a payment
+priced in dollars has empty `Price…` fields. Give `AmountUSD` or the pair, not both (`400`).
+When no exchange rate can be had, `Create` fails with a `503` (`exchange rate unavailable for
+price_currency: try again shortly`) once the client's retries are spent: try again shortly.
+
 ## Your own payment page
 
 `CheckoutURL` is only for payitgo's hosted page. To show the payment on your own page,
@@ -189,7 +208,7 @@ client, err := payitgo.NewClient(apiKey,
 )
 
 client.Livemode                                   // false for sk_test_ keys
-client.Payments.Create(ctx, &payitgo.PaymentParams{...}) // OrderID, AmountUSD, Token, …, WebhookURL, Simulate
+client.Payments.Create(ctx, &payitgo.PaymentParams{...}) // OrderID, AmountUSD (or PriceAmount + PriceCurrency), Token, …, WebhookURL, Simulate
 client.Payments.SelectToken(ctx, "pay_…", token)  // or your order id: the payment with its coin
 client.Payments.Simulate(ctx, "pay_…", payitgo.OutcomeConfirmed) // test keys: plays the outcome
 client.Payments.Get(ctx, "pay_…")                 // or your order id

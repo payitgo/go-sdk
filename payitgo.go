@@ -116,8 +116,11 @@ type Payment struct {
 	DestinationTag     *uint32           `json:"destination_tag,omitempty"`
 	CryptoAmount       string            `json:"crypto_amount"`
 	ReceivedAmount     string            `json:"received_amount"`
-	USDAmount          string            `json:"usd_amount"`     // your price
-	AmountDueUSD       string            `json:"amount_due_usd"` // what the customer pays: the price, plus the fees when you pass them on
+	USDAmount          string            `json:"usd_amount"`               // your price
+	PriceAmount        string            `json:"price_amount,omitempty"`   // your price in another currency, when you gave one (PaymentParams.PriceAmount)
+	PriceCurrency      string            `json:"price_currency,omitempty"` // its ISO 4217 code, upper case: "EUR"
+	PriceRate          string            `json:"price_rate,omitempty"`     // dollars per unit of PriceCurrency that USDAmount was converted at
+	AmountDueUSD       string            `json:"amount_due_usd"`           // what the customer pays: the price, plus the fees when you pass them on
 	FeesPaidByCustomer bool              `json:"fees_paid_by_customer"`
 	NetworkFee         string            `json:"network_fee"`     // quoted for moving the payment, in its coin
 	NetworkFeeUSD      string            `json:"network_fee_usd"` // and in dollars
@@ -143,16 +146,20 @@ type Payment struct {
 	WebhookURL         string            `json:"webhook_url,omitempty"` // where its events go instead of the webhook's URL
 }
 
-// PaymentParams creates a payment. OrderID and AmountUSD are required. Leave
-// Token empty to let the customer choose the coin on the checkout page, from
-// Tokens (default: every token the amount reaches the minimum of).
-// WebhookURL (https) gets the payment's events instead of the webhook's URL,
-// signed with the same secret; empty means the client's WithWebhookURL.
-// Simulate (an Outcome… constant, test keys only) plays that outcome on the
-// test payment once it has its coin.
+// PaymentParams creates a payment. OrderID is required, and the price: either
+// AmountUSD, or PriceAmount in PriceCurrency (an ISO 4217 code such as "EUR",
+// "GBP" or "NGN"), which payitgo converts into dollars at the rate of the
+// moment. Leave Token empty to let the customer choose the coin on the
+// checkout page, from Tokens (default: every token the amount reaches the
+// minimum of). WebhookURL (https) gets the payment's events instead of the
+// webhook's URL, signed with the same secret; empty means the client's
+// WithWebhookURL. Simulate (an Outcome… constant, test keys only) plays that
+// outcome on the test payment once it has its coin.
 type PaymentParams struct {
 	OrderID       string            `json:"order_id"`
-	AmountUSD     string            `json:"amount_usd"` // decimal, e.g. "19.99"
+	AmountUSD     string            `json:"amount_usd,omitempty"`     // decimal, e.g. "19.99"
+	PriceAmount   string            `json:"price_amount,omitempty"`   // decimal, e.g. "45.50": instead of AmountUSD
+	PriceCurrency string            `json:"price_currency,omitempty"` // with PriceAmount, e.g. "EUR"
 	Token         string            `json:"token,omitempty"`
 	Tokens        []string          `json:"tokens,omitempty"`
 	Description   string            `json:"description,omitempty"`
