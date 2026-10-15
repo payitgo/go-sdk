@@ -144,7 +144,7 @@ type Webhook struct {
 	// URL is empty when none is set: events then go only to the payments
 	// created with their own WebhookURL.
 	URL string `json:"url"`
-	// Secret ("whsec_…") signs every notification of the mode: pass it to
+	// Secret signs every notification of the mode: pass it to
 	// WithWebhookSecret.
 	Secret    string    `json:"secret"`
 	CreatedAt time.Time `json:"created_at"`

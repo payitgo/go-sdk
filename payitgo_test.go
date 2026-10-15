@@ -17,11 +17,14 @@ import (
 	"time"
 )
 
+const testKey = "8334dfeae25b9b200b75995e6e55cf8c3602120c1920bfef7a4ff8900b620881"
+
 // Signed by the gateway's own signer.
 const (
-	testSecret = "whsec_test_secret"
-	testHeader = "t=1760000000,v1=6abd292fdf2ecc51779c161f5d4be2d47236f7a43fbaa9dd7093303904b91a7b"
-	testBody   = `{"id":"evt_test_123","type":"payment.confirmed","livemode":false,"created_at":"2026-10-09T12:00:00Z","data":{"id":"pay_123","order_id":"ORD-1","status":"confirmed","usd_amount":"10"}}`
+	testSecret = "05bd6b428158318cc38756fa34aa60795af0fc5d9a316dcc9b060c8ca1863fc3"
+	testHeader = "t=1760000000,v1=75eb20fb34bccab4b9121285930b076e5e60ccad0a2542bd76eb56d89744faed"
+	testBody   = `{"id":"b8e1f80bd70ae0784c7855a4","type":"payment.confirmed","livemode":false,"created_at":"2026-10-09T12:00:00Z","data":{"id":"040ffd5925d40e11c67b7238","order_id":"ORD-1","status":"confirmed","usd_amount":"10"}}`
+	otherSecret  = "bd4106123e659e259c401119d0c7ef0a221df306a5a414b6fb6a579499962d26"
 )
 
 func sign(secret string, t int64, body string) string {
@@ -44,7 +47,7 @@ func TestConstructEventAcceptsGatewaySignature(t *testing.T) {
 func TestConstructEventRejects(t *testing.T) {
 	cases := map[string]struct{ body, header, secret string }{
 		"changed body": {strings.Replace(testBody, `"10"`, `"1000"`, 1), testHeader, testSecret},
-		"wrong secret": {testBody, testHeader, "whsec_other"},
+		"wrong secret": {testBody, testHeader, otherSecret},
 		"no header":    {testBody, "", testSecret},
 	}
 	for name, c := range cases {
@@ -66,25 +69,76 @@ func TestConstructEventTolerance(t *testing.T) {
 
 func TestNewClient(t *testing.T) {
 	t.Setenv("PAYITGO_BASE_URL", "")
-	if _, err := NewClient("pk_123", WithBaseURL("http://x")); err == nil {
-		t.Error("bad key accepted")
+	for _, key := range []string{"", "  "} {
+		if _, err := NewClient(key, WithBaseURL("http://x")); err == nil || err.Error() != "payitgo: the API key is required" {
+			t.Errorf("key %q: err %v", key, err)
+		}
 	}
 	// Without an address the client uses the release's default, or refuses.
-	if c, err := NewClient("sk_test_abc"); defaultBaseURL == "" && err == nil {
+	if c, err := NewClient(testKey); defaultBaseURL == "" && err == nil {
 		t.Error("missing base URL accepted")
 	} else if defaultBaseURL != "" && (err != nil || c.baseURL != strings.TrimRight(defaultBaseURL, "/")) {
 		t.Errorf("default base URL not used: %v", err)
 	}
-	c, err := NewClient("sk_live_abc", WithBaseURL("http://x/"))
-	if err != nil || !c.Livemode || c.baseURL != "http://x" {
+	c, err := NewClient(testKey, WithBaseURL("http://x/"))
+	if err != nil || c.baseURL != "http://x" {
 		t.Fatalf("client %+v err %v", c, err)
+	}
+}
+
+func TestIsLive(t *testing.T) {
+	for _, live := range []bool{true, false} {
+		var calls []string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls = append(calls, r.Method+" "+r.URL.Path+" "+r.Header.Get("Authorization"))
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"webhook":`+strings.Replace(testWebhook, `"livemode":false`, `"livemode":`+strconv.FormatBool(live), 1)+`}`)
+		}))
+		c, err := NewClient(testKey, WithBaseURL(srv.URL), WithMaxRetries(0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 2; i++ {
+			if got, err := c.IsLive(context.Background()); err != nil || got != live {
+				t.Errorf("live %v, call %d: %v %v", live, i+1, got, err)
+			}
+		}
+		// Asked once, with the key; the second call does not ask again.
+		if want := []string{"GET /v1/webhook Bearer " + testKey}; !reflect.DeepEqual(calls, want) {
+			t.Errorf("live %v: requests %q, want %q", live, calls, want)
+		}
+		srv.Close()
+	}
+}
+
+func TestIsLiveError(t *testing.T) {
+	status := http.StatusUnauthorized
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		if status != http.StatusOK {
+			io.WriteString(w, `{"error":"invalid API key"}`)
+			return
+		}
+		io.WriteString(w, `{"webhook":`+testWebhook+`}`)
+	}))
+	defer srv.Close()
+	c, _ := NewClient(testKey, WithBaseURL(srv.URL), WithMaxRetries(0))
+	var perr *Error
+	if _, err := c.IsLive(context.Background()); !errors.As(err, &perr) || perr.Status != http.StatusUnauthorized || perr.Message != "invalid API key" {
+		t.Fatalf("err %v", err)
+	}
+	// An error is not kept: the next call asks again.
+	status = http.StatusOK
+	if live, err := c.IsLive(context.Background()); err != nil || live {
+		t.Errorf("after the error: %v %v", live, err)
 	}
 }
 
 // ── The webhook (IPN), against a fake gateway ───────────────────────────────
 
 const (
-	testWebhook  = `{"livemode":false,"url":"https://shop.example/payitgo/ipn","secret":"whsec_abc","created_at":"2026-10-10T09:00:00Z","updated_at":"2026-10-10T09:05:00Z"}`
+	testWebhook  = `{"livemode":false,"url":"https://shop.example/payitgo/ipn","secret":"abababababababababababababababababababababababababababababababab","created_at":"2026-10-10T09:00:00Z","updated_at":"2026-10-10T09:05:00Z"}`
 	testDelivery = `{"id":"whd_1","merchant_id":"mch_1","target":"account","url":"https://shop.example/payitgo/ipn","event_id":"evt_1","event_type":"ping","payload":"{}","status":"pending","attempts":0,"max_attempts":7,"next_attempt_at":"2026-10-10T12:00:00Z","created_at":"2026-10-10T12:00:00Z"}`
 )
 
@@ -110,7 +164,7 @@ func fakeGateway(t *testing.T, status int, reply string, opts ...Option) (*Clien
 		io.WriteString(w, reply)
 	}))
 	t.Cleanup(srv.Close)
-	c, err := NewClient("sk_test_abc", append([]Option{WithBaseURL(srv.URL), WithMaxRetries(0)}, opts...)...)
+	c, err := NewClient(testKey, append([]Option{WithBaseURL(srv.URL), WithMaxRetries(0)}, opts...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,10 +177,10 @@ func TestWebhooksGet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.method != http.MethodGet || rec.path != "/v1/webhook" || rec.auth != "Bearer sk_test_abc" || rec.body != nil {
+	if rec.method != http.MethodGet || rec.path != "/v1/webhook" || rec.auth != "Bearer "+testKey || rec.body != nil {
 		t.Errorf("request %+v", rec)
 	}
-	if w.URL != "https://shop.example/payitgo/ipn" || w.Secret != "whsec_abc" || w.Livemode || w.UpdatedAt.IsZero() {
+	if w.URL != "https://shop.example/payitgo/ipn" || w.Secret != strings.Repeat("ab", 32) || w.Livemode || w.UpdatedAt.IsZero() {
 		t.Errorf("webhook %+v", w)
 	}
 }
@@ -137,7 +191,7 @@ func TestWebhooksSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.method != http.MethodPut || rec.path != "/v1/webhook" || rec.auth != "Bearer sk_test_abc" || rec.contentType != "application/json" {
+	if rec.method != http.MethodPut || rec.path != "/v1/webhook" || rec.auth != "Bearer "+testKey || rec.contentType != "application/json" {
 		t.Errorf("request %+v", rec)
 	}
 	if want := map[string]any{"url": "https://shop.example/payitgo/ipn"}; !reflect.DeepEqual(rec.body, want) {
@@ -154,10 +208,10 @@ func TestWebhooksRemove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.method != http.MethodDelete || rec.path != "/v1/webhook" || rec.auth != "Bearer sk_test_abc" {
+	if rec.method != http.MethodDelete || rec.path != "/v1/webhook" || rec.auth != "Bearer "+testKey {
 		t.Errorf("request %+v", rec)
 	}
-	if w.URL != "" || w.Secret != "whsec_abc" {
+	if w.URL != "" || w.Secret != strings.Repeat("ab", 32) {
 		t.Errorf("webhook %+v", w)
 	}
 }
@@ -168,7 +222,7 @@ func TestWebhooksTest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.method != http.MethodPost || rec.path != "/v1/webhook/test" || rec.auth != "Bearer sk_test_abc" {
+	if rec.method != http.MethodPost || rec.path != "/v1/webhook/test" || rec.auth != "Bearer "+testKey {
 		t.Errorf("request %+v", rec)
 	}
 	if d.EventType != EventPing || d.Status != DeliveryPending || d.MaxAttempts != 7 || d.Target != TargetAccount {
@@ -261,7 +315,7 @@ func TestPaymentsSelectToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.method != http.MethodPost || rec.path != "/v1/payments/pay_1/token" || rec.auth != "Bearer sk_test_abc" || rec.contentType != "application/json" {
+	if rec.method != http.MethodPost || rec.path != "/v1/payments/pay_1/token" || rec.auth != "Bearer "+testKey || rec.contentType != "application/json" {
 		t.Errorf("request %+v", rec)
 	}
 	if want := map[string]any{"token": "XRP"}; !reflect.DeepEqual(rec.body, want) {
@@ -303,7 +357,8 @@ const testSimulated = `{"id":"pay_2","merchant_id":"mch_1","order_id":"ORD-8","s
 	`"simulation":{"outcome":"confirmed","state":"running"},"token":"USDT_TRC20","chain":"tron",` +
 	`"deposit_address":"TPk2bpQqWRpXiaUHS9SXnZCDgvwrsuJ71o","crypto_amount":"20","received_amount":"20",` +
 	`"usd_amount":"20","amount_due_usd":"20","fees_paid_by_customer":false,"network_fee":"1","network_fee_usd":"0.3",` +
-	`"settlement":"custodial","received_usd":"20","rate_locked":"1","deposits":[{"tx_id":"sim_pay_2_1791817211348_0",` +
+	`"settlement":"custodial","received_usd":"20","rate_locked":"1",` +
+	`"deposits":[{"tx_id":"8de0120d502929788a71a7b7cf60e5ef3c095cdbb05cd8a7ddabc0bc9ffa9582",` +
 	`"token":"USDT_TRC20","chain":"tron","amount":"20","usd_value":"20","counted":true,"status":"pending",` +
 	`"seen_at":"2026-10-10T12:00:05Z","simulated":true}],"expires_at":"2026-10-10T12:15:00Z",` +
 	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Near-zero fees on Tron. Fastest settlement.",` +
@@ -315,14 +370,14 @@ func TestPaymentsSimulate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.method != http.MethodPost || rec.path != "/v1/payments/pay_2/simulate" || rec.auth != "Bearer sk_test_abc" || rec.contentType != "application/json" {
+	if rec.method != http.MethodPost || rec.path != "/v1/payments/pay_2/simulate" || rec.auth != "Bearer "+testKey || rec.contentType != "application/json" {
 		t.Errorf("request %+v", rec)
 	}
 	if want := map[string]any{"outcome": "confirmed"}; !reflect.DeepEqual(rec.body, want) {
 		t.Errorf("body %v, want %v", rec.body, want)
 	}
 	if p.Simulation == nil || p.Simulation.Outcome != OutcomeConfirmed || p.Simulation.State != SimulationRunning ||
-		len(p.Deposits) != 1 || !p.Deposits[0].Simulated || !strings.HasPrefix(p.Deposits[0].TxID, "sim_") {
+		len(p.Deposits) != 1 || !p.Deposits[0].Simulated || len(p.Deposits[0].TxID) != 64 {
 		t.Errorf("payment %+v", p)
 	}
 	// Every field the gateway sent is in the Payment.
@@ -435,20 +490,20 @@ func TestPaymentsCreatePriceErrors(t *testing.T) {
 
 func TestClientConstructEvent(t *testing.T) {
 	fresh := sign(testSecret, time.Now().Unix(), testBody)
-	c, _ := NewClient("sk_test_abc", WithBaseURL("http://x"), WithWebhookSecret(testSecret))
-	if e, err := c.Webhooks.ConstructEvent([]byte(testBody), fresh); err != nil || e.ID != "evt_test_123" {
+	c, _ := NewClient(testKey, WithBaseURL("http://x"), WithWebhookSecret(testSecret))
+	if e, err := c.Webhooks.ConstructEvent([]byte(testBody), fresh); err != nil || e.ID != "b8e1f80bd70ae0784c7855a4" {
 		t.Fatalf("with the client's secret: %+v %v", e, err)
 	}
 	// An explicit secret wins over the client's.
-	other, _ := NewClient("sk_test_abc", WithBaseURL("http://x"), WithWebhookSecret("whsec_other"))
+	other, _ := NewClient(testKey, WithBaseURL("http://x"), WithWebhookSecret(otherSecret))
 	if _, err := other.Webhooks.ConstructEvent([]byte(testBody), fresh); !errors.Is(err, ErrSignature) {
 		t.Errorf("the wrong client secret: %v", err)
 	}
-	if e, err := other.Webhooks.ConstructEvent([]byte(testBody), fresh, testSecret); err != nil || e.ID != "evt_test_123" {
+	if e, err := other.Webhooks.ConstructEvent([]byte(testBody), fresh, testSecret); err != nil || e.ID != "b8e1f80bd70ae0784c7855a4" {
 		t.Errorf("with an explicit secret: %+v %v", e, err)
 	}
 	// Without any secret there is nothing to verify with.
-	none, _ := NewClient("sk_test_abc", WithBaseURL("http://x"))
+	none, _ := NewClient(testKey, WithBaseURL("http://x"))
 	if _, err := none.Webhooks.ConstructEvent([]byte(testBody), fresh); !errors.Is(err, ErrSignature) || !strings.Contains(err.Error(), "no webhook secret") {
 		t.Errorf("without a secret: %v", err)
 	}
@@ -463,7 +518,7 @@ func TestConstructEventReasons(t *testing.T) {
 	cases := []struct{ name, header, secret, reason string }{
 		{"no header", "", testSecret, "missing or malformed X-Webhook-Signature header"},
 		{"no v1", "t=1760000000", testSecret, "missing or malformed X-Webhook-Signature header"},
-		{"wrong secret", testHeader, "whsec_other", "signature does not match"},
+		{"wrong secret", testHeader, otherSecret, "signature does not match"},
 		{"old timestamp", testHeader, testSecret, "timestamp outside the tolerance"},
 		{"non-numeric timestamp", soon, testSecret, "malformed timestamp"},
 	}

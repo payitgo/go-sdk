@@ -15,7 +15,7 @@ import payitgo "github.com/payitgo/go-sdk"
 
 client, err := payitgo.NewClient(os.Getenv("PAYITGO_KEY"),
 	payitgo.WithBaseURL(os.Getenv("PAYITGO_BASE_URL")),
-	payitgo.WithWebhookSecret(os.Getenv("PAYITGO_WEBHOOK_SECRET")), // "whsec_…": see Webhooks (IPN) below
+	payitgo.WithWebhookSecret(os.Getenv("PAYITGO_WEBHOOK_SECRET")), // the signing secret: see Webhooks (IPN) below
 )
 
 // 1. Create a payment and send the customer to the checkout page.
@@ -50,8 +50,10 @@ func ipn(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-Start with your test key (`sk_test_…`), where you [simulate](#test-mode) what the customer
-pays; switch to the live key (`sk_live_…`) when the account owner has turned live mode on.
+Start with a test key, where you [simulate](#test-mode) what the customer pays; switch to
+a live key when the account owner has turned live mode on. A key does not say its mode
+(the dashboard shows a Test or Live badge next to it): `client.IsLive(ctx)` asks payitgo,
+once.
 
 ## Prices in other currencies
 
@@ -116,9 +118,9 @@ payment, err = client.Payments.Simulate(ctx, "TEST-2", payitgo.OutcomePartiallyP
 ```
 
 Outcomes (`payitgo.Outcome…`): `confirmed`, `overpaid`, `partially_paid`, `underpaid`,
-`expired`, `failed`, `wrong_asset`, `paid_late`. Simulated deposits have `Simulated: true`
-and a `TxID` starting with `sim_`. A live key gets `400`; a payment whose simulation is still
-running, `409`.
+`expired`, `failed`, `wrong_asset`, `paid_late`. Simulated deposits have `Simulated: true`;
+their `TxID` names no transaction on any chain. A live key gets `400`; a payment whose
+simulation is still running, `409`.
 
 ## Webhooks (IPN)
 
@@ -145,8 +147,8 @@ shop, err := payitgo.NewClient(os.Getenv("PAYITGO_KEY"), payitgo.WithWebhookURL(
 A storefront's key cannot set the account's URL (`403`): set `WebhookURL` on its payments
 instead. Payout events always go to the webhook's URL.
 
-**The signing secret.** Every notification of a mode is signed with that mode's secret
-(`whsec_…`), whichever URL it goes to. Copy it from the dashboard or read it with
+**The signing secret.** Every notification of a mode is signed with that mode's secret,
+whichever URL it goes to. Copy it from the dashboard or read it with
 `client.Webhooks.Get(ctx)` (`.Secret`), and give it to the client once:
 
 ```go
@@ -203,11 +205,11 @@ client, err := payitgo.NewClient(apiKey,
 	payitgo.WithBaseURL("https://api.example.com"), // or PAYITGO_BASE_URL
 	payitgo.WithHTTPClient(&http.Client{Timeout: 30 * time.Second}),
 	payitgo.WithMaxRetries(2),                      // network errors, 429 and 5xx
-	payitgo.WithWebhookSecret("whsec_…"),           // for client.Webhooks.ConstructEvent
+	payitgo.WithWebhookSecret(secret),              // for client.Webhooks.ConstructEvent
 	payitgo.WithWebhookURL("https://…"),            // default PaymentParams.WebhookURL
 )
 
-client.Livemode                                   // false for sk_test_ keys
+client.IsLive(ctx)                                // (false, nil) for a test key: asks payitgo once
 client.Payments.Create(ctx, &payitgo.PaymentParams{...}) // OrderID, AmountUSD (or PriceAmount + PriceCurrency), Token, …, WebhookURL, Simulate
 client.Payments.SelectToken(ctx, paymentID, token) // or your order id: the payment with its coin
 client.Payments.Simulate(ctx, paymentID, payitgo.OutcomeConfirmed) // test keys: plays the outcome

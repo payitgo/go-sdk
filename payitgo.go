@@ -21,6 +21,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -93,7 +94,7 @@ type Deposit struct {
 	FailedAt   *time.Time `json:"failed_at,omitempty"`
 	FailReason string     `json:"fail_reason,omitempty"`
 	// Simulated is true for a deposit a test payment's simulation played: its
-	// TxID starts with "sim_" and names no transaction on any chain.
+	// TxID names no transaction on any chain.
 	Simulated bool `json:"simulated,omitempty"`
 }
 
@@ -218,11 +219,9 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("payitgo: %s (HTTP %d)", e.Message, e.Status)
 }
 
-// Client talks to the payitgo API with one secret key.
+// Client talks to the payitgo API with one secret key. IsLive says whether it
+// is a live key or a test key.
 type Client struct {
-	// Livemode is false for a test key (sk_test_…), true for a live key (sk_live_…).
-	Livemode bool
-
 	Payments *PaymentsService
 	Tokens   *TokensService
 	Checkout *CheckoutService
@@ -234,6 +233,10 @@ type Client struct {
 	maxRetries    int
 	webhookSecret string
 	webhookURL    string
+
+	mu        sync.Mutex
+	live      bool // the key's mode, once liveKnown: what payitgo said
+	liveKnown bool
 }
 
 // Option configures a Client.
@@ -250,21 +253,20 @@ func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.http = h
 // a 429 or a 5xx (default 2).
 func WithMaxRetries(n int) Option { return func(c *Client) { c.maxRetries = n } }
 
-// WithWebhookSecret sets the signing secret of the key's mode ("whsec_…"),
-// which WebhooksService.ConstructEvent uses when given none.
+// WithWebhookSecret sets the signing secret of the key's mode, which
+// WebhooksService.ConstructEvent uses when given none.
 func WithWebhookSecret(secret string) Option { return func(c *Client) { c.webhookSecret = secret } }
 
 // WithWebhookURL sets the webhook_url sent with every payment this client
 // creates whose PaymentParams.WebhookURL is empty.
 func WithWebhookURL(u string) Option { return func(c *Client) { c.webhookURL = u } }
 
-// NewClient returns a client for apiKey (sk_test_… or sk_live_…).
+// NewClient returns a client for apiKey, a test or a live secret key.
 func NewClient(apiKey string, opts ...Option) (*Client, error) {
-	if !strings.HasPrefix(apiKey, "sk_test_") && !strings.HasPrefix(apiKey, "sk_live_") {
-		return nil, errors.New("payitgo: the API key must start with sk_test_ or sk_live_")
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, errors.New("payitgo: the API key is required")
 	}
 	c := &Client{
-		Livemode:   strings.HasPrefix(apiKey, "sk_live_"),
 		apiKey:     apiKey,
 		baseURL:    os.Getenv("PAYITGO_BASE_URL"),
 		http:       &http.Client{Timeout: 30 * time.Second},
@@ -285,6 +287,27 @@ func NewClient(apiKey string, opts ...Option) (*Client, error) {
 	c.Checkout = &CheckoutService{c}
 	c.Webhooks = &WebhooksService{c}
 	return c, nil
+}
+
+// IsLive reports whether the key is a live key (its payments are real) rather
+// than a test key. payitgo says which (GET /v1/webhook's livemode) the first
+// time; the answer is kept for the client's life. An error (an *Error when
+// payitgo refuses the key) is not kept: the next call asks again.
+func (c *Client) IsLive(ctx context.Context) (bool, error) {
+	c.mu.Lock()
+	live, known := c.live, c.liveKnown
+	c.mu.Unlock()
+	if known {
+		return live, nil
+	}
+	w, err := c.Webhooks.Get(ctx)
+	if err != nil {
+		return false, err
+	}
+	c.mu.Lock()
+	c.live, c.liveKnown = w.Livemode, true
+	c.mu.Unlock()
+	return w.Livemode, nil
 }
 
 // PaymentsService creates and reads payments.
