@@ -293,7 +293,7 @@ const testChosen = `{"id":"pay_1","merchant_id":"mch_1","order_id":"ORD-7","stat
 	`"deposit_address":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","destination_tag":1042,"crypto_amount":"20","received_amount":"0",` +
 	`"usd_amount":"10","amount_due_usd":"10","fees_paid_by_customer":false,"network_fee":"0.000012","network_fee_usd":"0.01",` +
 	`"settlement":"custodial","received_usd":"0","rate_locked":"0.5","deposits":[],"expires_at":"2026-10-10T12:15:00Z",` +
-	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Near-zero fees. Include destination tag — required.",` +
+	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Final in seconds. Include the destination tag: it is required.",` +
 	`"qr_payload":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","checkout_token":"ct_abc",` +
 	`"checkout_url":"https://pay.example/ct_abc","description":"Order 7","metadata":{"cart":"42"}}`
 
@@ -361,7 +361,7 @@ const testSimulated = `{"id":"pay_2","merchant_id":"mch_1","order_id":"ORD-8","s
 	`"deposits":[{"tx_id":"8de0120d502929788a71a7b7cf60e5ef3c095cdbb05cd8a7ddabc0bc9ffa9582",` +
 	`"token":"USDT_TRC20","chain":"tron","amount":"20","usd_value":"20","counted":true,"status":"pending",` +
 	`"seen_at":"2026-10-10T12:00:05Z","simulated":true}],"expires_at":"2026-10-10T12:15:00Z",` +
-	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Near-zero fees on Tron. Fastest settlement.",` +
+	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Final in about a minute.",` +
 	`"qr_payload":"TPk2bpQqWRpXiaUHS9SXnZCDgvwrsuJ71o"}`
 
 func TestPaymentsSimulate(t *testing.T) {
