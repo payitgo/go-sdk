@@ -344,7 +344,7 @@ func TestPaymentsSelectToken(t *testing.T) {
 }
 
 func TestPaymentsSelectTokenChosen(t *testing.T) {
-	const message = "the coin for this payment has already been chosen"
+	const message = "the coin for this payment can no longer be changed"
 	c, _ := fakeGateway(t, http.StatusConflict, `{"error":"`+message+`"}`)
 	var perr *Error
 	if _, err := c.Payments.SelectToken(context.Background(), "pay_1", "XRP"); !errors.As(err, &perr) || perr.Status != http.StatusConflict || perr.Message != message {

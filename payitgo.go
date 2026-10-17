@@ -83,8 +83,10 @@ type Deposit struct {
 	SeenAt      time.Time  `json:"seen_at"`
 	ConfirmedAt *time.Time `json:"confirmed_at,omitempty"`
 	// From is the sender's address when the network reports it (for a
-	// Bitcoin-like coin, the first input's): where a refund would go.
+	// Bitcoin-like coin, the first input's): where a refund would go. To is
+	// the address it was sent to: the payment's, or a previous coin's.
 	From string `json:"from,omitempty"`
+	To   string `json:"to,omitempty"`
 	// Block is the block (on XRP, the ledger) that holds the transfer, and
 	// MadeAt that block's time.
 	Block  int64      `json:"block,omitempty"`
@@ -98,6 +100,17 @@ type Deposit struct {
 	Simulated bool `json:"simulated,omitempty"`
 }
 
+// PreviousCoin is a coin chosen for a payment before its current one, when
+// the customer changed it. Its address is still watched.
+type PreviousCoin struct {
+	Token          string  `json:"token"`
+	Chain          string  `json:"chain"`
+	DepositAddress string  `json:"deposit_address"`
+	DestinationTag *uint32 `json:"destination_tag,omitempty"`
+	CryptoAmount   string  `json:"crypto_amount"`
+	RateLocked     string  `json:"rate_locked"`
+}
+
 // Payment is a payment as the API returns it. Amounts are decimal strings.
 type Payment struct {
 	ID         string `json:"id"`
@@ -109,10 +122,12 @@ type Payment struct {
 	// Simulation is set on a test payment that has a simulated outcome.
 	Simulation *Simulation `json:"simulation,omitempty"`
 	// Token and Chain are empty until the customer chooses the coin, from
-	// TokenOptions.
+	// TokenOptions, which stay while the coin can still change.
+	// PreviousCoins are the coins chosen before it.
 	Token              string            `json:"token"`
 	Chain              string            `json:"chain"`
 	TokenOptions       []TokenInfo       `json:"token_options,omitempty"`
+	PreviousCoins      []PreviousCoin    `json:"previous_coins,omitempty"`
 	DepositAddress     string            `json:"deposit_address"`
 	DestinationTag     *uint32           `json:"destination_tag,omitempty"`
 	CryptoAmount       string            `json:"crypto_amount"`
@@ -335,8 +350,9 @@ func (s *PaymentsService) Get(ctx context.Context, id string) (*Payment, error) 
 // SelectToken sets the coin of a payment created without one, when the
 // customer chose it on your own page: one of its TokenOptions. id is the
 // payment's id or your order id. The payment comes back whole, now
-// with its address, amount, locked rate and a deadline 15 minutes away. The
-// coin is chosen once: choosing again is an *Error with Status 409.
+// with its address, amount, locked rate and a deadline 15 minutes away.
+// Another coin changes it while the payment still has TokenOptions; once it
+// can no longer change, an *Error with Status 409.
 func (s *PaymentsService) SelectToken(ctx context.Context, id, token string) (*Payment, error) {
 	var out Payment
 	body := map[string]string{"token": token}
