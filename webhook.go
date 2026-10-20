@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -26,9 +27,11 @@ var ErrSignature = errors.New("payitgo: webhook signature verification failed")
 // signatureError is ErrSignature with its reason.
 func signatureError(reason string) error { return fmt.Errorf("%w: %s", ErrSignature, reason) }
 
-// Event is a webhook event.
+// Event is a webhook event, as its webhook carried it or as EventsService.List
+// replays it.
 type Event struct {
-	// ID identifies the event; it is the same when the event is delivered again.
+	// ID identifies the event; it is the same when the event is delivered
+	// again, and when it is replayed.
 	ID        string          `json:"id"`
 	Type      string          `json:"type"`
 	Livemode  bool            `json:"livemode"`
@@ -42,10 +45,13 @@ func (e *Event) Payment() (*Payment, error) { return eventData[Payment](e) }
 // PayoutBatch decodes the batch a payout_batch.* event carries.
 func (e *Event) PayoutBatch() (*PayoutBatch, error) { return eventData[PayoutBatch](e) }
 
-// PayoutItem decodes the payment to a recipient a payout_item.* event carries.
+// PayoutItem decodes the payment to a recipient a payout_item.* event
+// carries (payout_item.processing, .returned, .sent, .failed, .canceled,
+// .claimed and .claim_expired).
 func (e *Event) PayoutItem() (*PayoutItem, error) { return eventData[PayoutItem](e) }
 
-// PayoutWithdrawal decodes the withdrawal a payout_wallet.withdrawn event carries.
+// PayoutWithdrawal decodes the withdrawal a payout_wallet.withdrawn or
+// payout_wallet.withdrawal_failed event carries.
 func (e *Event) PayoutWithdrawal() (*PayoutWithdrawal, error) { return eventData[PayoutWithdrawal](e) }
 
 // PayoutSchedule decodes the schedule a payout_schedule.run event carries.
@@ -123,8 +129,9 @@ func ConstructEventWithTolerance(payload []byte, signatureHeader, secret string,
 // ── The webhook (IPN) ─────────────────────────────────────────────────────────
 
 // Event types: every event of the key's mode is sent. EventPing is sent by
-// WebhooksService.Test. A payout batch made with a WebhookURL sends its
-// payout_batch.* and payout_item.* events there instead of the webhook's URL.
+// WebhooksService.Test. A payout payment's payout_item.* events go to its own
+// WebhookURL, else to its batch's, else to the webhook's URL; a payout batch
+// made with a WebhookURL sends its payout_batch.* events there.
 const (
 	EventPaymentPartiallyPaid = "payment.partially_paid"
 	EventPaymentDetecting     = "payment.detecting"
@@ -144,22 +151,25 @@ const (
 	// a recipient (a PayoutItem), the payout wallet's withdrawals (a
 	// PayoutWithdrawal), and schedules' runs (a PayoutSchedule) and the
 	// top-ups they need (a PayoutScheduleFunding).
-	EventPayoutBatchQuoted           = "payout_batch.quoted"
-	EventPayoutBatchPendingApproval  = "payout_batch.pending_approval"
-	EventPayoutBatchApproved         = "payout_batch.approved"
-	EventPayoutBatchRejected         = "payout_batch.rejected"
-	EventPayoutBatchAwaitingFunds    = "payout_batch.awaiting_funds"
-	EventPayoutBatchProcessing       = "payout_batch.processing"
-	EventPayoutBatchCompleted        = "payout_batch.completed"
-	EventPayoutBatchCanceled         = "payout_batch.canceled"
-	EventPayoutItemSent              = "payout_item.sent"
-	EventPayoutItemFailed            = "payout_item.failed"
-	EventPayoutItemCanceled          = "payout_item.canceled"
-	EventPayoutItemClaimed           = "payout_item.claimed"       // a claim link's recipient chose the coin and address
-	EventPayoutItemClaimExpired      = "payout_item.claim_expired" // a claim link was never claimed: its money is free again
-	EventPayoutWalletWithdrawn       = "payout_wallet.withdrawn"
-	EventPayoutScheduleRun           = "payout_schedule.run"            // a schedule made its batch (or says why not)
-	EventPayoutScheduleFundingNeeded = "payout_schedule.funding_needed" // the wallet would not cover a schedule's next run
+	EventPayoutBatchQuoted            = "payout_batch.quoted"
+	EventPayoutBatchPendingApproval   = "payout_batch.pending_approval"
+	EventPayoutBatchApproved          = "payout_batch.approved"
+	EventPayoutBatchRejected          = "payout_batch.rejected"
+	EventPayoutBatchAwaitingFunds     = "payout_batch.awaiting_funds"
+	EventPayoutBatchProcessing        = "payout_batch.processing"
+	EventPayoutBatchCompleted         = "payout_batch.completed"
+	EventPayoutBatchCanceled          = "payout_batch.canceled"
+	EventPayoutItemProcessing         = "payout_item.processing" // a payout request left your list for a batch of its own
+	EventPayoutItemReturned           = "payout_item.returned"   // a sent payout request came back to your list (not final)
+	EventPayoutItemSent               = "payout_item.sent"
+	EventPayoutItemFailed             = "payout_item.failed"
+	EventPayoutItemCanceled           = "payout_item.canceled"
+	EventPayoutItemClaimed            = "payout_item.claimed"       // a claim link's recipient chose the coin and address
+	EventPayoutItemClaimExpired       = "payout_item.claim_expired" // a claim link was never claimed: its money is free again
+	EventPayoutWalletWithdrawn        = "payout_wallet.withdrawn"
+	EventPayoutWalletWithdrawalFailed = "payout_wallet.withdrawal_failed" // a withdrawal failed (FailReason): its money stays in the wallet
+	EventPayoutScheduleRun            = "payout_schedule.run"             // a schedule made its batch (or says why not)
+	EventPayoutScheduleFundingNeeded  = "payout_schedule.funding_needed"  // the wallet would not cover a schedule's next run
 )
 
 // Delivery statuses.
@@ -264,6 +274,60 @@ func (s *WebhooksService) Test(ctx context.Context) (*WebhookDelivery, error) {
 		Delivery WebhookDelivery `json:"delivery"`
 	}
 	return &out.Delivery, s.c.do(ctx, http.MethodPost, "/v1/webhook/test", nil, &out, true)
+}
+
+// EventListParams narrows EventsService.List; zero values are left out.
+type EventListParams struct {
+	// Types keeps the events of these types: exact (EventPayoutItemSent), or
+	// a family ("payout_item.*"). None keeps them all.
+	Types []string
+	// After is an event's ID: the events after it. Keep the last one you
+	// handled.
+	After string
+	// CreatedAfter keeps the events created after it (ignored with After).
+	CreatedAfter time.Time
+	Limit        int // 1 to 200 (default 100)
+}
+
+// EventPage is one page of EventsService.List: events, oldest first, each
+// decoded with the Event methods as on a webhook. While HasMore, read on with
+// After set to the last event's ID.
+type EventPage struct {
+	Events  []Event `json:"events"`
+	HasMore bool    `json:"has_more"`
+}
+
+// EventsService replays the events of the key's mode.
+type EventsService struct{ c *Client }
+
+// List returns the events of the key's mode exactly as their webhooks
+// carried them, oldest first: replay the ones your system missed. Events are
+// kept; pings are left out, and events of the last 5 seconds are left for the
+// next read, so moving forward never skips one. Any account key reads them
+// (read-only keys too); a storefront's key gets an *Error with Status 403. A
+// key without payouts gets claim links without their URL and PIN.
+func (s *EventsService) List(ctx context.Context, p *EventListParams) (*EventPage, error) {
+	q := url.Values{}
+	if p != nil {
+		if len(p.Types) > 0 {
+			q.Set("type", strings.Join(p.Types, ","))
+		}
+		if p.After != "" {
+			q.Set("after", p.After)
+		}
+		if !p.CreatedAfter.IsZero() {
+			q.Set("created_after", p.CreatedAfter.UTC().Format(time.RFC3339))
+		}
+		if p.Limit > 0 {
+			q.Set("limit", strconv.Itoa(p.Limit))
+		}
+	}
+	path := "/v1/events"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out EventPage
+	return &out, s.c.do(ctx, http.MethodGet, path, nil, &out, true)
 }
 
 // ConstructEvent verifies a webhook request with the client's

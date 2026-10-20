@@ -608,6 +608,27 @@ const testPayoutCanceled = `{"id":"9c1e3a5b7d9f2b4d6f8a0c2e","merchant_id":"3f8a
 	`"status":"canceled","errors":[],"warnings":[],"fee_credit":"1.26183421",` +
 	`"created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T09:20:00Z"}`
 
+// testPayoutRemoved is a payout request removed from the list by an API key:
+// canceled, its reference given back, its record kept without a batch.
+const testPayoutRemoved = `{"id":"4e6a8c0b2d4f6a1c3e5b7d9a","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":false,` +
+	`"released_reference":"WD-7731","row":3,"recipient":{"name":"Ana Silva"},` +
+	`"asset":"USDT_TRC20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron",` +
+	`"address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi","amount":"120","send_amount":"120","platform_fee":"0.6",` +
+	`"network_fee":"5.748213","fee":"6.348213","debit":"126.348213","usd_rate":"1","amount_usd":"120","status":"canceled",` +
+	`"errors":[],"warnings":[],"cancel_reason":"removed","canceled_by":"5e1a9c3d7b2f40e8a6c4d2b1","canceled_at":"2026-10-20T09:40:00Z",` +
+	`"webhook_url":"https://acme.example/payitgo/withdrawals","created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T09:40:00Z"}`
+
+// testPayoutRejected is a payment of a batch an approver rejected: canceled
+// with the approver's reason, by a team member named in members.
+const testPayoutRejected = `{"id":"9c1e3a5b7d9f2b4d6f8a0c2e","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
+	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","released_reference":"payroll-2026-10-ben","row":2,"recipient":{},` +
+	`"asset":"USDT_BEP20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_BEP20.svg","chain":"bsc",` +
+	`"address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed","amount":"250","send_amount":"250","platform_fee":"1.25",` +
+	`"network_fee":"0.01183421","fee":"1.26183421","debit":"251.26183421","usd_rate":"1","amount_usd":"250",` +
+	`"status":"canceled","errors":[],"warnings":[],"cancel_reason":"rejected","cancel_note":"paid by bank transfer instead",` +
+	`"canceled_by":"9b2e4c71d8a05f3e6c1a7b24","canceled_at":"2026-10-20T15:02:44.3Z","members":{"9b2e4c71d8a05f3e6c1a7b24":"finance@acme.example"},` +
+	`"created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T15:02:44.3Z"}`
+
 // testPayoutBatch is a submitted batch waiting for funds.
 const testPayoutBatch = `{"id":"6a1f3c8e2d9b4a7051c3e8f2","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
 	`"reference":"payroll-2026-10","name":"October payroll","source":"api","inbox":false,"open":false,` +
@@ -669,6 +690,14 @@ const testPayoutWithdrawal = `{"id":"1d3f5a7c9e2b4d6f8a0c2e4b","merchant_id":"3f
 	`"explorer_url":"https://tronscan.org/#/transaction/7e2b9d4f1a6c3e8b5d0f2a7c4e9b1d6f3a8c5e0b2d7f4a9c1e6b3d8f5a0c2e7b",` +
 	`"requested_by":"9b2e4c71d8a05f3e6c1a7b24","created_at":"2026-10-20T11:02:15.33Z","updated_at":"2026-10-20T11:03:40Z",` +
 	`"sent_at":"2026-10-20T11:03:40Z"}`
+
+// testPayoutWithdrawalFailed is a payout wallet's withdrawal that failed: its
+// money stays in the wallet.
+const testPayoutWithdrawalFailed = `{"id":"2e4a6c8f0b1d3f5a7c9e1b3d","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
+	`"asset":"USDT_TRC20","chain":"tron","amount":"200","fee":"12.01","send_amount":"187.99",` +
+	`"address_id":"3e7a1c9f5b2d4e8a6c0f2b1d","address":"TWd4Kp9mR2xH7sN3vB6cJ8fL5qY1tZgEaU","status":"failed",` +
+	`"fail_reason":"the transfer failed on chain three times","requested_by":"9b2e4c71d8a05f3e6c1a7b24",` +
+	`"created_at":"2026-10-20T12:02:15.33Z","updated_at":"2026-10-20T12:31:40Z"}`
 
 // testPayoutClaim is a claim link, funded and emailed, waiting for its
 // recipient: no address yet, two other coins offered.
@@ -760,6 +789,12 @@ func TestPayoutRequests(t *testing.T) {
 			return err
 		}, http.MethodPost, "/v1/payouts", "", `{"reference":"prize-cup-final-2","asset":"USDT_TRC20","amount":"100","name":"Player Two",` +
 			`"email":"player2@example.com","claim":true,"claim_assets":["USDT_BEP20","BTC"]}`},
+		{"Payouts.Request with its own webhook_url", `{"item":` + testPayoutRequest + `}`, func(c *Client) error {
+			_, err := c.Payouts.Request(ctx, &PayoutParams{Reference: "WD-7731", Asset: "USDT_TRC20", Address: "TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi", Amount: "120",
+				WebhookURL: "https://acme.example/payitgo/withdrawals"})
+			return err
+		}, http.MethodPost, "/v1/payouts", "", `{"reference":"WD-7731","asset":"USDT_TRC20","address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi","amount":"120",` +
+			`"webhook_url":"https://acme.example/payitgo/withdrawals"}`},
 		{"Payouts.Request a claim link to share", `{"item":` + testPayoutClaim + `}`, func(c *Client) error {
 			_, err := c.Payouts.Request(ctx, &PayoutParams{Asset: "USDT_BEP20", Amount: "25", Claim: true})
 			return err
@@ -776,6 +811,25 @@ func TestPayoutRequests(t *testing.T) {
 			_, err := c.Payouts.RetrieveByReference(ctx, "payroll 2026/10&ana")
 			return err
 		}, http.MethodGet, "/v1/payouts", "reference=payroll+2026%2F10%26ana", ""},
+		{"Payouts.List", `{"items":[],"has_more":false}`, func(c *Client) error {
+			since := time.Date(2026, 10, 20, 11, 0, 0, 500_000_000, time.FixedZone("CAT", 2*60*60))
+			_, err := c.Payouts.List(ctx, &PayoutPageParams{Status: []string{PayoutItemSent, PayoutItemFailed, PayoutItemCanceled}, UpdatedSince: since,
+				Cursor: "MjAyNi0xMC0yMFQwOTo0MDowMFp8NGU2YThjMGIyZDRmNmExYzNlNWI3ZDlh", Limit: 100})
+			return err
+		}, http.MethodGet, "/v1/payouts", "cursor=MjAyNi0xMC0yMFQwOTo0MDowMFp8NGU2YThjMGIyZDRmNmExYzNlNWI3ZDlh&limit=100" +
+			"&status=sent%2Cfailed%2Ccanceled&updated_since=2026-10-20T09%3A00%3A00Z", ""},
+		{"Payouts.List one status", `{"items":[],"has_more":false}`, func(c *Client) error {
+			_, err := c.Payouts.List(ctx, &PayoutPageParams{Status: []string{PayoutItemCanceled}})
+			return err
+		}, http.MethodGet, "/v1/payouts", "status=canceled", ""},
+		{"Payouts.List without params", `{"items":[],"has_more":false}`, func(c *Client) error {
+			_, err := c.Payouts.List(ctx, nil)
+			return err
+		}, http.MethodGet, "/v1/payouts", "", ""},
+		{"Payouts.List with empty params", `{"items":[],"has_more":false}`, func(c *Client) error {
+			_, err := c.Payouts.List(ctx, &PayoutPageParams{})
+			return err
+		}, http.MethodGet, "/v1/payouts", "", ""},
 		{"Payouts.Inbox", testPayoutInbox, func(c *Client) error {
 			_, err := c.Payouts.Inbox(ctx, &PayoutListParams{Status: "ready,invalid", Limit: 10, Offset: 20})
 			return err
@@ -792,6 +846,10 @@ func TestPayoutRequests(t *testing.T) {
 			_, err := c.Payouts.Send(ctx, "4e6a8c0b2d4f6a1c3e5b7d9a", "5f7b9d1c3e5a7b2d4f6a8c0e")
 			return err
 		}, http.MethodPost, "/v1/payouts/send", "", `{"ids":["4e6a8c0b2d4f6a1c3e5b7d9a","5f7b9d1c3e5a7b2d4f6a8c0e"]}`},
+		{"Payouts.Remove", `{"results":[{"id":"4e6a8c0b2d4f6a1c3e5b7d9a","item":` + testPayoutRemoved + `}]}`, func(c *Client) error {
+			_, err := c.Payouts.Remove(ctx, "4e6a8c0b2d4f6a1c3e5b7d9a", "5f7b9d1c3e5a7b2d4f6a8c0e")
+			return err
+		}, http.MethodPost, "/v1/payouts/remove", "", `{"ids":["4e6a8c0b2d4f6a1c3e5b7d9a","5f7b9d1c3e5a7b2d4f6a8c0e"]}`},
 		{"Payouts.Cancel", `{"item":` + testPayoutCanceled + `}`, func(c *Client) error {
 			_, err := c.Payouts.Cancel(ctx, "9c1e3a5b7d9f2b4d6f8a0c2e")
 			return err
@@ -818,6 +876,12 @@ func TestPayoutRequests(t *testing.T) {
 			return err
 		}, http.MethodPost, "/v1/payout-batches", "", `{"reference":"payroll-2026-11","convert":"convert","convert_from":"USDT_TRC20",` +
 			`"items":[{"asset":"BTC","address":"bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq","amount":"0.01"}]}`},
+		{"PayoutBatches.Create with a payment's own webhook_url", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
+			_, err := c.PayoutBatches.Create(ctx, &PayoutBatchParams{WebhookURL: "https://acme.example/payitgo/payouts",
+				Items: []PayoutParams{{Asset: "USDT_TRC20", Address: "TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi", Amount: "120", WebhookURL: "https://acme.example/payitgo/ana"}}})
+			return err
+		}, http.MethodPost, "/v1/payout-batches", "", `{"webhook_url":"https://acme.example/payitgo/payouts",` +
+			`"items":[{"asset":"USDT_TRC20","address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi","amount":"120","webhook_url":"https://acme.example/payitgo/ana"}]}`},
 		{"PayoutBatches.Create with only items", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
 			_, err := c.PayoutBatches.Create(ctx, &PayoutBatchParams{Items: items[1:]})
 			return err
@@ -957,6 +1021,169 @@ func TestPayoutsCancel(t *testing.T) {
 		t.Errorf("item %+v", item)
 	}
 	sameJSON(t, "canceled", item, testPayoutCanceled)
+
+	// A request still in the list is removed: its record kept, without a
+	// batch. Canceling it again answers it as it is.
+	c, _ = fakeGateway(t, http.StatusOK, `{"item":`+testPayoutRemoved+`}`)
+	item, err = c.Payouts.Cancel(context.Background(), "4e6a8c0b2d4f6a1c3e5b7d9a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Status != PayoutItemCanceled || item.CancelReason != PayoutCancelRemoved || item.BatchID != "" || item.ReleasedReference != "WD-7731" ||
+		item.CanceledBy != "5e1a9c3d7b2f40e8a6c4d2b1" || item.CanceledAt == nil || item.WebhookURL != "https://acme.example/payitgo/withdrawals" {
+		t.Errorf("removed %+v", item)
+	}
+	sameJSON(t, "removed", item, testPayoutRemoved)
+}
+
+// Remove answers one result per id, in order: the request removed, or why
+// not, as the *Error a call of its own would have returned.
+func TestPayoutsRemove(t *testing.T) {
+	reply := `{"results":[{"id":"4e6a8c0b2d4f6a1c3e5b7d9a","item":` + testPayoutRemoved + `},` +
+		`{"id":"8b2d4f6a1c3e5a7b9d0f2c4e","error":{"status":409,"message":"not in your list of payout requests (sent already): cancel it with DELETE /v1/payouts/8b2d4f6a1c3e5a7b9d0f2c4e"}},` +
+		`{"id":"0a1b2c3d4e5f60718293a4b5","error":{"status":404,"message":"not found"}}]}`
+	c, rec := fakeGateway(t, http.StatusOK, reply)
+	results, err := c.Payouts.Remove(context.Background(), "4e6a8c0b2d4f6a1c3e5b7d9a", "8b2d4f6a1c3e5a7b9d0f2c4e", "0a1b2c3d4e5f60718293a4b5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/v1/payouts/remove" || rec.query != "" || rec.auth != "Bearer "+testKey ||
+		!reflect.DeepEqual(rec.body, map[string]any{"ids": []any{"4e6a8c0b2d4f6a1c3e5b7d9a", "8b2d4f6a1c3e5a7b9d0f2c4e", "0a1b2c3d4e5f60718293a4b5"}}) {
+		t.Errorf("request %+v", rec)
+	}
+	if len(results) != 3 {
+		t.Fatalf("results %+v", results)
+	}
+	if r := results[0]; r.ID != "4e6a8c0b2d4f6a1c3e5b7d9a" || r.Error != nil || r.Item == nil || r.Item.Status != PayoutItemCanceled ||
+		r.Item.CancelReason != PayoutCancelRemoved || r.Item.BatchID != "" || r.Item.ReleasedReference != "WD-7731" {
+		t.Errorf("removed %+v %+v", r, r.Item)
+	}
+	if r := results[1]; r.ID != "8b2d4f6a1c3e5a7b9d0f2c4e" || r.Item != nil || r.Error == nil || r.Error.Status != http.StatusConflict ||
+		!strings.HasPrefix(r.Error.Message, "not in your list of payout requests (sent already)") {
+		t.Errorf("sent already %+v %+v", r, r.Error)
+	}
+	if r := results[2]; r.ID != "0a1b2c3d4e5f60718293a4b5" || r.Item != nil || r.Error == nil ||
+		r.Error.Error() != "payitgo: not found (HTTP 404)" {
+		t.Errorf("unknown %+v %+v", r, r.Error)
+	}
+	var perr *Error
+	if err := error(results[2].Error); !errors.As(err, &perr) || perr.Status != http.StatusNotFound {
+		t.Errorf("result error %v", err)
+	}
+	sameJSON(t, "results", map[string]any{"results": results}, reply)
+}
+
+// Remove needs an id: none is refused before any request is sent.
+func TestPayoutsRemoveNeedsIDs(t *testing.T) {
+	c, rec := fakeGateway(t, http.StatusOK, `{"results":[]}`)
+	for _, ids := range [][]string{nil, {}} {
+		results, err := c.Payouts.Remove(context.Background(), ids...)
+		var perr *Error
+		if !errors.As(err, &perr) || perr.Status != http.StatusBadRequest || perr.Message != "remove needs at least one payout request id" ||
+			err.Error() != "payitgo: remove needs at least one payout request id (HTTP 400)" || results != nil {
+			t.Errorf("%q: results %+v err %v", ids, results, err)
+		}
+	}
+	if rec.method != "" {
+		t.Errorf("sent %+v", rec)
+	}
+}
+
+// RetrieveByReference needs a reference: without one, GET /v1/payouts would
+// list payments, so none is refused before any request is sent.
+func TestPayoutsRetrieveByReferenceNeedsReference(t *testing.T) {
+	c, rec := fakeGateway(t, http.StatusOK, `{"items":[],"has_more":false}`)
+	for _, ref := range []string{"", "  "} {
+		item, err := c.Payouts.RetrieveByReference(context.Background(), ref)
+		var perr *Error
+		if !errors.As(err, &perr) || perr.Status != http.StatusBadRequest || perr.Message != "reference is required" || item != nil {
+			t.Errorf("%q: item %+v err %v", ref, item, err)
+		}
+	}
+	if rec.method != "" {
+		t.Errorf("sent %+v", rec)
+	}
+}
+
+// List reads payments across batches, oldest change first, with the cursor
+// to read on from.
+func TestPayoutsList(t *testing.T) {
+	reply := `{"items":[` + testPayoutSent + `,` + testPayoutRemoved + `],"has_more":true,` +
+		`"next_cursor":"MjAyNi0xMC0yMFQwOTo0MDowMFp8NGU2YThjMGIyZDRmNmExYzNlNWI3ZDlh"}`
+	c, rec := fakeGateway(t, http.StatusOK, reply)
+	since := time.Date(2026, 10, 20, 11, 0, 0, 0, time.FixedZone("CAT", 2*60*60))
+	page, err := c.Payouts.List(context.Background(), &PayoutPageParams{Status: []string{"sent", "canceled"}, UpdatedSince: since})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.method != http.MethodGet || rec.path != "/v1/payouts" || rec.query != "status=sent%2Ccanceled&updated_since=2026-10-20T09%3A00%3A00Z" || rec.body != nil {
+		t.Errorf("request %+v", rec)
+	}
+	if !page.HasMore || page.NextCursor != "MjAyNi0xMC0yMFQwOTo0MDowMFp8NGU2YThjMGIyZDRmNmExYzNlNWI3ZDlh" || len(page.Items) != 2 ||
+		page.Items[0].Status != PayoutItemSent || page.Items[1].CancelReason != PayoutCancelRemoved || page.Items[1].BatchID != "" {
+		t.Errorf("page %+v", page)
+	}
+	sameJSON(t, "page", page, reply)
+
+	// Read on from the cursor.
+	if _, err := c.Payouts.List(context.Background(), &PayoutPageParams{Cursor: page.NextCursor}); err != nil ||
+		rec.query != "cursor=MjAyNi0xMC0yMFQwOTo0MDowMFp8NGU2YThjMGIyZDRmNmExYzNlNWI3ZDlh" {
+		t.Errorf("read on: query %q err %v", rec.query, err)
+	}
+
+	// An empty page has no cursor: the one passed is kept.
+	c, rec = fakeGateway(t, http.StatusOK, `{"items":[],"has_more":false}`)
+	page, err = c.Payouts.List(context.Background(), nil)
+	if err != nil || page.HasMore || page.NextCursor != "" || len(page.Items) != 0 || rec.query != "" {
+		t.Errorf("empty page %+v (query %q) %v", page, rec.query, err)
+	}
+	sameJSON(t, "empty page", page, `{"items":[],"has_more":false}`)
+}
+
+// Events.List replays events as their webhooks carried them: the Event
+// methods decode them the same way.
+func TestEventsList(t *testing.T) {
+	reply := `{"events":[{"id":"9b1e3c5a7d2f4b6e8a0c1d3f","type":"payout_item.canceled","livemode":true,` +
+		`"created_at":"2026-10-20T15:02:44.312Z","data":` + testPayoutRejected + `},` +
+		`{"id":"a2c4e6b8d0f1a3c5e7b9d1f3","type":"payout_wallet.withdrawal_failed","livemode":true,` +
+		`"created_at":"2026-10-20T12:31:40.05Z","data":` + testPayoutWithdrawalFailed + `}],"has_more":true}`
+	c, rec := fakeGateway(t, http.StatusOK, reply)
+	after := time.Date(2026, 10, 20, 17, 0, 0, 0, time.FixedZone("CAT", 2*60*60))
+	page, err := c.Events.List(context.Background(), &EventListParams{Types: []string{"payout_item.*", EventPayoutWalletWithdrawalFailed},
+		CreatedAfter: after, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.method != http.MethodGet || rec.path != "/v1/events" || rec.auth != "Bearer "+testKey || rec.body != nil ||
+		rec.query != "created_after=2026-10-20T15%3A00%3A00Z&limit=2&type=payout_item.%2A%2Cpayout_wallet.withdrawal_failed" {
+		t.Errorf("request %+v", rec)
+	}
+	if !page.HasMore || len(page.Events) != 2 || page.Events[0].ID != "9b1e3c5a7d2f4b6e8a0c1d3f" || page.Events[0].Type != EventPayoutItemCanceled ||
+		!page.Events[0].Livemode || !page.Events[0].CreatedAt.Equal(time.Date(2026, 10, 20, 15, 2, 44, 312_000_000, time.UTC)) {
+		t.Errorf("page %+v", page)
+	}
+	sameJSON(t, "events", page, reply)
+
+	item, err := page.Events[0].PayoutItem()
+	if err != nil || item.Status != PayoutItemCanceled || item.CancelReason != PayoutCancelRejected || item.CancelNote != "paid by bank transfer instead" ||
+		item.CanceledBy != "9b2e4c71d8a05f3e6c1a7b24" || item.CanceledAt == nil || item.Members[item.CanceledBy] != "finance@acme.example" {
+		t.Errorf("canceled %+v %v", item, err)
+	}
+	withdrawal, err := page.Events[1].PayoutWithdrawal()
+	if err != nil || withdrawal.Status != "failed" || withdrawal.FailReason != "the transfer failed on chain three times" || withdrawal.SentAt != nil {
+		t.Errorf("withdrawal %+v %v", withdrawal, err)
+	}
+
+	// Read on after the last event; nil params send no query.
+	if _, err := c.Events.List(context.Background(), &EventListParams{After: page.Events[1].ID}); err != nil || rec.query != "after=a2c4e6b8d0f1a3c5e7b9d1f3" {
+		t.Errorf("after: query %q err %v", rec.query, err)
+	}
+	if _, err := c.Events.List(context.Background(), nil); err != nil || rec.path != "/v1/events" || rec.query != "" {
+		t.Errorf("no params: %s?%s err %v", rec.path, rec.query, err)
+	}
+	if _, err := c.Events.List(context.Background(), &EventListParams{Types: []string{EventPayoutItemSent}}); err != nil || rec.query != "type=payout_item.sent" {
+		t.Errorf("one type: query %q err %v", rec.query, err)
+	}
 }
 
 func TestPayoutsInbox(t *testing.T) {
@@ -1136,6 +1363,22 @@ func TestPayoutErrors(t *testing.T) {
 			_, err := c.PayoutWallets.SimulateTopUp(ctx, "USDT_TRC20", "1000")
 			return err
 		}},
+		{http.StatusBadRequest, "remove between 1 and 1000 payout requests at a time", func(c *Client) error {
+			_, err := c.Payouts.Remove(ctx, "")
+			return err
+		}},
+		{http.StatusBadRequest, "cursor is not one this API gave", func(c *Client) error {
+			_, err := c.Payouts.List(ctx, &PayoutPageParams{Cursor: "nope"})
+			return err
+		}},
+		{http.StatusForbidden, "a storefront's key cannot read the account's events: use an account key", func(c *Client) error {
+			_, err := c.Events.List(ctx, nil)
+			return err
+		}},
+		{http.StatusBadRequest, "after is not an event of this mode", func(c *Client) error {
+			_, err := c.Events.List(ctx, &EventListParams{After: "0a1b2c3d4e5f60718293a4b5"})
+			return err
+		}},
 	}
 	for _, tc := range cases {
 		reply, _ := json.Marshal(map[string]string{"error": tc.message})
@@ -1154,6 +1397,13 @@ func TestPayoutEvents(t *testing.T) {
 	failed := strings.NewReplacer(`"status":"sent"`, `"status":"failed"`, `"sent_at":"2026-10-20T09:31:12.6Z",`,
 		`"fail_reason":"the transfer failed on chain three times",`).Replace(testPayoutSent)
 	expired := strings.NewReplacer(`"status":"claimable"`, `"status":"expired"`).Replace(testPayoutClaim)
+	// A request sent from the list into a batch of its own, with its own
+	// webhook_url; then back in the list, no longer valid.
+	processing := strings.NewReplacer(`"batch_id":"7c3e5a9b1d2f4e6a8c0b2d4f"`, `"batch_id":"6a1f3c8e2d9b4a7051c3e8f2"`,
+		`"created_at"`, `"webhook_url":"https://acme.example/payitgo/withdrawals","created_at"`).Replace(testPayoutRequest)
+	returned := strings.NewReplacer(`"status":"ready"`, `"status":"invalid"`, `"errors":[]`,
+		`"errors":[{"code":"below_minimum","field":"amount","message":"worth less than the smallest payment in USDT_TRC20 right now"}]`).
+		Replace(testPayoutRequest)
 	// A schedule that has not run yet: no last run, batch or error.
 	first := strings.NewReplacer(`"last_run_at":"2026-10-31T07:00:00Z","last_batch_id":"6a1f3c8e2d9b4a7051c3e8f2"`,
 		`"last_run_at":null,"last_batch_id":""`, `"runs":4`, `"runs":0`).Replace(testPayoutSchedule)
@@ -1164,8 +1414,12 @@ func TestPayoutEvents(t *testing.T) {
 		decode    func(*Event) (any, error)
 	}{
 		{EventPayoutBatchRejected, rejected, func(e *Event) (any, error) { return e.PayoutBatch() }},
+		{EventPayoutItemProcessing, processing, func(e *Event) (any, error) { return e.PayoutItem() }},
+		{EventPayoutItemReturned, returned, func(e *Event) (any, error) { return e.PayoutItem() }},
 		{EventPayoutItemFailed, failed, func(e *Event) (any, error) { return e.PayoutItem() }},
+		{EventPayoutItemCanceled, testPayoutRejected, func(e *Event) (any, error) { return e.PayoutItem() }},
 		{EventPayoutWalletWithdrawn, testPayoutWithdrawal, func(e *Event) (any, error) { return e.PayoutWithdrawal() }},
+		{EventPayoutWalletWithdrawalFailed, testPayoutWithdrawalFailed, func(e *Event) (any, error) { return e.PayoutWithdrawal() }},
 		{EventPayoutItemClaimed, testPayoutClaimed, func(e *Event) (any, error) { return e.PayoutItem() }},
 		{EventPayoutItemClaimExpired, expired, func(e *Event) (any, error) { return e.PayoutItem() }},
 		{EventPayoutScheduleRun, testPayoutSchedule, func(e *Event) (any, error) { return e.PayoutSchedule() }},
@@ -1188,9 +1442,23 @@ func TestPayoutEvents(t *testing.T) {
 				t.Errorf("%s: %+v", tc.typ, d)
 			}
 		case *PayoutItem:
-			if want := map[string]string{EventPayoutItemFailed: PayoutItemFailed, EventPayoutItemClaimed: PayoutItemQueued,
-				EventPayoutItemClaimExpired: PayoutItemExpired}[tc.typ]; d.Status != want ||
-				(tc.typ == EventPayoutItemFailed && d.FailReason == "") || (tc.typ != EventPayoutItemFailed && d.Claim == nil) {
+			bad := d.Status != map[string]string{EventPayoutItemProcessing: PayoutItemReady, EventPayoutItemReturned: PayoutItemInvalid,
+				EventPayoutItemFailed: PayoutItemFailed, EventPayoutItemCanceled: PayoutItemCanceled, EventPayoutItemClaimed: PayoutItemQueued,
+				EventPayoutItemClaimExpired: PayoutItemExpired}[tc.typ]
+			switch tc.typ {
+			case EventPayoutItemProcessing:
+				bad = bad || d.BatchID != "6a1f3c8e2d9b4a7051c3e8f2" || d.WebhookURL != "https://acme.example/payitgo/withdrawals"
+			case EventPayoutItemReturned:
+				bad = bad || d.BatchID != "7c3e5a9b1d2f4e6a8c0b2d4f" || len(d.Errors) != 1 || d.Errors[0].Code != IssueBelowMinimum
+			case EventPayoutItemFailed:
+				bad = bad || d.FailReason == ""
+			case EventPayoutItemCanceled:
+				bad = bad || d.CancelReason != PayoutCancelRejected || d.CancelNote == "" || d.CanceledAt == nil ||
+					d.Members[d.CanceledBy] != "finance@acme.example" || d.ReleasedReference == ""
+			default:
+				bad = bad || d.Claim == nil
+			}
+			if bad {
 				t.Errorf("%s: %+v", tc.typ, d)
 			}
 		case *PayoutSchedule:
@@ -1205,19 +1473,28 @@ func TestPayoutEvents(t *testing.T) {
 				t.Errorf("%s: %+v", tc.typ, d)
 			}
 		case *PayoutWithdrawal:
-			if d.Status != "sent" || d.SendAmount != "361.641787" || d.SentAt == nil {
+			if tc.typ == EventPayoutWalletWithdrawn && (d.Status != "sent" || d.SendAmount != "361.641787" || d.SentAt == nil || d.FailReason != "") ||
+				tc.typ == EventPayoutWalletWithdrawalFailed && (d.Status != "failed" || d.FailReason == "" || d.SentAt != nil || d.TxID != "") {
 				t.Errorf("%s: %+v", tc.typ, d)
 			}
 		}
 	}
-	got := []string{EventPayoutBatchQuoted, EventPayoutBatchPendingApproval, EventPayoutBatchApproved, EventPayoutBatchRejected,
+	got := []string{EventPaymentPartiallyPaid, EventPaymentDetecting, EventPaymentConfirmed, EventPaymentUnderpaid,
+		EventPaymentExpired, EventPaymentFailed, EventPaymentWrongAsset, EventPaymentLateDeposit,
+		EventPayoutApproved, EventPayoutRejected, EventPayoutSent, EventSettlementCompleted, EventSettlementFailed,
+		EventPayoutBatchQuoted, EventPayoutBatchPendingApproval, EventPayoutBatchApproved, EventPayoutBatchRejected,
 		EventPayoutBatchAwaitingFunds, EventPayoutBatchProcessing, EventPayoutBatchCompleted, EventPayoutBatchCanceled,
-		EventPayoutItemSent, EventPayoutItemFailed, EventPayoutItemCanceled, EventPayoutItemClaimed, EventPayoutItemClaimExpired,
-		EventPayoutWalletWithdrawn, EventPayoutScheduleRun, EventPayoutScheduleFundingNeeded}
-	want := []string{"payout_batch.quoted", "payout_batch.pending_approval", "payout_batch.approved", "payout_batch.rejected",
+		EventPayoutItemProcessing, EventPayoutItemReturned, EventPayoutItemSent, EventPayoutItemFailed, EventPayoutItemCanceled,
+		EventPayoutItemClaimed, EventPayoutItemClaimExpired, EventPayoutWalletWithdrawn, EventPayoutWalletWithdrawalFailed,
+		EventPayoutScheduleRun, EventPayoutScheduleFundingNeeded, EventPing}
+	want := []string{"payment.partially_paid", "payment.detecting", "payment.confirmed", "payment.underpaid",
+		"payment.expired", "payment.failed", "payment.wrong_asset", "payment.late_deposit",
+		"payout.approved", "payout.rejected", "payout.sent", "settlement.completed", "settlement.failed",
+		"payout_batch.quoted", "payout_batch.pending_approval", "payout_batch.approved", "payout_batch.rejected",
 		"payout_batch.awaiting_funds", "payout_batch.processing", "payout_batch.completed", "payout_batch.canceled",
-		"payout_item.sent", "payout_item.failed", "payout_item.canceled", "payout_item.claimed", "payout_item.claim_expired",
-		"payout_wallet.withdrawn", "payout_schedule.run", "payout_schedule.funding_needed"}
+		"payout_item.processing", "payout_item.returned", "payout_item.sent", "payout_item.failed", "payout_item.canceled",
+		"payout_item.claimed", "payout_item.claim_expired", "payout_wallet.withdrawn", "payout_wallet.withdrawal_failed",
+		"payout_schedule.run", "payout_schedule.funding_needed", "ping"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("event types %q, want %q", got, want)
 	}

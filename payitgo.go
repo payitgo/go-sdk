@@ -228,10 +228,13 @@ type TokenInfo struct {
 }
 
 // Error is a request the API refused. Status is the HTTP status, or 0 for a
-// network error.
+// network error. A call the library refuses before sending it (an empty
+// reference or list of ids) is one too, with Status 400. It is also why one
+// of several ids was not done (PayoutRemoveResult.Error): what a call of its
+// own would have answered.
 type Error struct {
-	Status  int
-	Message string
+	Status  int    `json:"status"`
+	Message string `json:"message"`
 }
 
 func (e *Error) Error() string {
@@ -251,6 +254,7 @@ type Client struct {
 	Payouts       *PayoutsService
 	PayoutBatches *PayoutBatchesService
 	PayoutWallets *PayoutWalletsService
+	Events        *EventsService
 
 	apiKey        string
 	baseURL       string
@@ -314,6 +318,7 @@ func NewClient(apiKey string, opts ...Option) (*Client, error) {
 	c.Payouts = &PayoutsService{c}
 	c.PayoutBatches = &PayoutBatchesService{c}
 	c.PayoutWallets = &PayoutWalletsService{c}
+	c.Events = &EventsService{c}
 	return c, nil
 }
 

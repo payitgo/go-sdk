@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,9 +19,15 @@ import (
 // payment can be a claim link (its recipient chooses the coin and address)
 // or be converted on its way into another coin than the wallet's. Every
 // payment is checked and priced before anything leaves the wallet. Reading
-// works with any key; making, sending, quoting, submitting, canceling and
-// test top-ups need a key with payouts turned on in the dashboard (an *Error
-// with Status 403 otherwise).
+// works with any key; making, sending, quoting, submitting, removing,
+// canceling and test top-ups need a key with payouts turned on in the
+// dashboard (an *Error with Status 403 otherwise).
+//
+// Every payment ends sent, failed, canceled or expired, with one event
+// each (delivered at least once: deduplicate on Event.ID). Events may
+// arrive in any order: act on the payment's Status and latest UpdatedAt.
+// Replay missed events with EventsService.List, and resync payments with
+// PayoutsService.List.
 
 // Payout batch statuses.
 const (
@@ -44,10 +51,23 @@ const (
 	PayoutItemSending    = "sending"    // its transfer is on its way
 	PayoutItemSent       = "sent"       // on chain (TxID)
 	PayoutItemFailed     = "failed"     // given up (FailReason); its money stays in the wallet
-	PayoutItemCanceled   = "canceled"   // canceled, or removed from the open list, before it was sent
+	PayoutItemCanceled   = "canceled"   // canceled, or removed from the open list, before it was sent (CancelReason says why)
 	PayoutItemClaimable  = "claimable"  // a claim link, funded: waiting for its recipient (until Claim.ExpiresAt)
 	PayoutItemExpired    = "expired"    // a claim link never claimed: its money is free again
 )
+
+// Why a payment was canceled (PayoutItem.CancelReason).
+const (
+	PayoutCancelRemoved       = "removed"        // taken out of your list of payout requests
+	PayoutCancelCanceled      = "canceled"       // the payment alone, by your team or an API key
+	PayoutCancelBatchCanceled = "batch_canceled" // its batch was canceled
+	PayoutCancelRejected      = "rejected"       // its batch was rejected (CancelNote says why)
+	PayoutCancelInvalid       = "invalid"        // no longer payable when its batch was submitted or funded (Errors say why)
+)
+
+// PayoutCanceledBySystem is PayoutItem.CanceledBy and PayoutBatch.CanceledBy
+// when payitgo itself canceled it.
+const PayoutCanceledBySystem = "system"
 
 // Who pays a batch's fees (PayoutBatch.FeePaidBy).
 const (
@@ -159,7 +179,7 @@ type PayoutItem struct {
 	ID         string `json:"id,omitempty"`
 	MerchantID string `json:"merchant_id,omitempty"`
 	Livemode   bool   `json:"livemode"`
-	BatchID    string `json:"batch_id,omitempty"` // its batch, or your open list of payout requests
+	BatchID    string `json:"batch_id,omitempty"` // its batch, or your open list of payout requests; empty for a request removed from the list
 	// Reference is your id for it, unique in its mode. RefusedReference is
 	// one it was given that another payment carries (it keeps none, and is
 	// invalid); ReleasedReference the one it had once canceled or failed
@@ -193,7 +213,15 @@ type PayoutItem struct {
 	TxID         string        `json:"tx_id,omitempty"`        // once sent (made up in test mode)
 	ExplorerURL  string        `json:"explorer_url,omitempty"` // live only
 	FailReason   string        `json:"fail_reason,omitempty"`
-	Claim        *PayoutClaim  `json:"claim,omitempty"` // a claim link
+	CancelReason string        `json:"cancel_reason,omitempty"` // why it was canceled: a PayoutCancel… constant
+	CancelNote   string        `json:"cancel_note,omitempty"`   // a rejection's reason (PayoutCancelRejected)
+	CanceledBy   string        `json:"canceled_by,omitempty"`   // who canceled it: a team member's id, an API key's id, or PayoutCanceledBySystem
+	CanceledAt   *time.Time    `json:"canceled_at,omitempty"`   // when it was canceled
+	// Members is the email of the team member CanceledBy names, by id, as it
+	// was when they acted.
+	Members    map[string]string `json:"members,omitempty"`
+	WebhookURL string            `json:"webhook_url,omitempty"` // where its events go instead of its batch's WebhookURL or the webhook's URL
+	Claim      *PayoutClaim      `json:"claim,omitempty"`       // a claim link
 	// Convert is set on a payment converted on its way; ConversionFee (in
 	// Asset, part of Fee) is what converting costs.
 	Convert       *PayoutConversion `json:"convert,omitempty"`
@@ -227,7 +255,7 @@ type PayoutBatch struct {
 	// in ConvertFrom is paid from ConvertFrom, converted on its way.
 	Convert     string         `json:"convert"`
 	ConvertFrom string         `json:"convert_from,omitempty"`
-	WebhookURL  string         `json:"webhook_url,omitempty"` // where its events go instead of the webhook's URL
+	WebhookURL  string         `json:"webhook_url,omitempty"` // where its events go, and its payments' without their own, instead of the webhook's URL
 	Status      string         `json:"status"`                // a PayoutBatch… constant
 	Waiting     *PayoutWaiting `json:"waiting,omitempty"`     // while it waits for funds, the day's limit or a pause
 	// Totals are its payments that go, per coin; Counts its payments by
@@ -243,7 +271,7 @@ type PayoutBatch struct {
 	SubmittedAt     *time.Time         `json:"submitted_at,omitempty"`
 	FundedAt        *time.Time         `json:"funded_at,omitempty"`
 	CompletedAt     *time.Time         `json:"completed_at,omitempty"`
-	CanceledBy      string             `json:"canceled_by,omitempty"`
+	CanceledBy      string             `json:"canceled_by,omitempty"` // a team member's id, an API key's id, or PayoutCanceledBySystem
 	CanceledAt      *time.Time         `json:"canceled_at,omitempty"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
@@ -346,7 +374,8 @@ type PayoutWalletAsset struct {
 // PayoutWithdrawal is a payout wallet's funds in one coin sent back to one
 // of your payout addresses (made in the dashboard, by the owner): Amount
 // leaves the wallet, Fee goes to payitgo, SendAmount arrives. Status is
-// "requested", "sending", "sent" or "failed".
+// "requested", "sending", "sent" or "failed" (FailReason says why; its money
+// stays in the wallet).
 type PayoutWithdrawal struct {
 	ID          string     `json:"id"`
 	MerchantID  string     `json:"merchant_id"`
@@ -362,6 +391,7 @@ type PayoutWithdrawal struct {
 	Status      string     `json:"status"`
 	TxID        string     `json:"tx_id,omitempty"`
 	ExplorerURL string     `json:"explorer_url,omitempty"`
+	FailReason  string     `json:"fail_reason,omitempty"` // why it failed
 	RequestedBy string     `json:"requested_by"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
@@ -442,6 +472,11 @@ type PayoutItemList struct {
 // address. With an Email its link is emailed there; without one you share
 // it (PayoutItem.Claim.URL) yourself, and give its PIN (Claim.PIN) another
 // way: the recipient enters it. A claim link is never converted.
+//
+// WebhookURL (https, on a public host) gets the payment's events, signed
+// with the mode's secret: it comes before its batch's WebhookURL and the
+// webhook's URL, and a payout request keeps it when it is sent into a batch.
+// The payments of one call may name at most 10 different WebhookURLs.
 type PayoutParams struct {
 	Reference   string   `json:"reference,omitempty"`
 	Asset       string   `json:"asset"` // "USDT_TRC20", "BTC", …
@@ -453,6 +488,7 @@ type PayoutParams struct {
 	Note        string   `json:"note,omitempty"`
 	Claim       bool     `json:"claim,omitempty"`        // a claim link
 	ClaimAssets []string `json:"claim_assets,omitempty"` // the other coins its recipient may choose (a claim link)
+	WebhookURL  string   `json:"webhook_url,omitempty"`  // where its events go instead of its batch's or the webhook's URL
 }
 
 // PayoutBatchParams makes a batch of 1 to 1000 payments (add more with
@@ -461,7 +497,8 @@ type PayoutParams struct {
 // default to your payout settings: with Convert PayoutConvert, every
 // payment in another coin than ConvertFrom (a coin, e.g. "USDT_TRC20") is
 // paid from ConvertFrom, converted on its way. WebhookURL (https) gets the
-// batch's events instead of the webhook's URL.
+// batch's events, and those of its payments without a WebhookURL of their
+// own, instead of the webhook's URL.
 type PayoutBatchParams struct {
 	Reference   string         `json:"reference,omitempty"`
 	Name        string         `json:"name,omitempty"`
@@ -527,8 +564,9 @@ type PayoutScheduleFunding struct {
 	Shortfall []PayoutShortfall `json:"shortfall"`
 }
 
-// PayoutListParams narrows a listing of batches, payments or payout
-// requests; zero values are left out. Status is one status, or for
+// PayoutListParams narrows a listing of batches, a batch's payments or
+// payout requests (PayoutsService.List takes PayoutPageParams); zero values
+// are left out. Status is one status, or for
 // PayoutBatchesService.Items and PayoutsService.Inbox several,
 // comma-separated ("sent,failed"). Limit is 1 to 200 (default 50).
 type PayoutListParams struct {
@@ -558,6 +596,39 @@ func (p *PayoutListParams) query() string {
 	return "?" + q.Encode()
 }
 
+// PayoutPageParams narrows PayoutsService.List; zero values are left out.
+type PayoutPageParams struct {
+	// Status keeps the payments in these statuses (PayoutItem… constants);
+	// none keeps them all.
+	Status []string
+	// UpdatedSince keeps the payments changed at or after it: for your first
+	// read.
+	UpdatedSince time.Time
+	// Cursor is the NextCursor of the page before: the payments changed after
+	// the last one it listed.
+	Cursor string
+	Limit  int // 1 to 200 (default 50)
+}
+
+// PayoutPage is one page of PayoutsService.List: payments, oldest change
+// first. While HasMore, read on with Cursor set to NextCursor. NextCursor is
+// empty when the page is: keep the cursor you passed.
+type PayoutPage struct {
+	Items      []PayoutItem `json:"items"`
+	HasMore    bool         `json:"has_more"`
+	NextCursor string       `json:"next_cursor,omitempty"`
+}
+
+// PayoutRemoveResult is what PayoutsService.Remove did with one id: the
+// request, now canceled (Item), or why it was not removed (Error: Status
+// 404 "not found", or 409 for a request sent from the list already or one
+// that ended).
+type PayoutRemoveResult struct {
+	ID    string      `json:"id"`
+	Item  *PayoutItem `json:"item,omitempty"`
+	Error *Error      `json:"error,omitempty"`
+}
+
 type payoutItemReply struct {
 	Item PayoutItem `json:"item"`
 }
@@ -570,8 +641,8 @@ type payoutWalletsReply struct {
 	Wallets []PayoutWallet `json:"wallets"`
 }
 
-// PayoutsService takes your clients' payout requests one by one, sends
-// them, and reads, cancels and quotes payments to recipients.
+// PayoutsService takes your clients' payout requests one by one, sends or
+// removes them, and reads, lists, cancels and quotes payments to recipients.
 type PayoutsService struct{ c *Client }
 
 // Request adds one of your clients' payout requests to your open list,
@@ -591,11 +662,47 @@ func (s *PayoutsService) Retrieve(ctx context.Context, id string) (*PayoutItem, 
 	return &out.Item, s.c.do(ctx, http.MethodGet, "/v1/payouts/"+url.PathEscape(id), nil, &out, true)
 }
 
-// RetrieveByReference returns the payment that carries your reference.
+// RetrieveByReference returns the payment that carries your reference, or
+// else the latest payment that gave it back (canceled, failed or expired,
+// with it as ReleasedReference): what became of a request sent with it. An
+// empty reference is an *Error with Status 400, sent nowhere.
 func (s *PayoutsService) RetrieveByReference(ctx context.Context, reference string) (*PayoutItem, error) {
+	if strings.TrimSpace(reference) == "" {
+		return nil, &Error{Status: http.StatusBadRequest, Message: "reference is required"}
+	}
 	var out payoutItemReply
 	path := "/v1/payouts?" + url.Values{"reference": {reference}}.Encode()
 	return &out.Item, s.c.do(ctx, http.MethodGet, path, nil, &out, true)
+}
+
+// List returns the payments of the key's mode whatever their batch (payout
+// requests in your list, removed ones, and every batch's), oldest change
+// first, to bring your records back in sync. Read with UpdatedSince the
+// first time, then with Cursor set to NextCursor while HasMore; keep the
+// last NextCursor to read what changed since, later. Changes of the last 5
+// seconds are left for the next read, so a cursor never skips one.
+func (s *PayoutsService) List(ctx context.Context, p *PayoutPageParams) (*PayoutPage, error) {
+	q := url.Values{}
+	if p != nil {
+		if len(p.Status) > 0 {
+			q.Set("status", strings.Join(p.Status, ","))
+		}
+		if !p.UpdatedSince.IsZero() {
+			q.Set("updated_since", p.UpdatedSince.UTC().Format(time.RFC3339))
+		}
+		if p.Cursor != "" {
+			q.Set("cursor", p.Cursor)
+		}
+		if p.Limit > 0 {
+			q.Set("limit", strconv.Itoa(p.Limit))
+		}
+	}
+	path := "/v1/payouts"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out PayoutPage
+	return &out, s.c.do(ctx, http.MethodGet, path, nil, &out, true)
 }
 
 // Inbox returns your open list of payout requests: the list, what sending
@@ -618,9 +725,33 @@ func (s *PayoutsService) Send(ctx context.Context, ids ...string) (*PayoutBatch,
 	return &out.Batch, s.c.do(ctx, http.MethodPost, "/v1/payouts/send", body, &out, true)
 }
 
-// Cancel takes a payout request out of your open list, or cancels a payment
-// that was sent but is not on its way yet. It comes back with Status
-// PayoutItemCanceled.
+// Remove takes 1 to 1000 payout requests out of your open list at once.
+// Each one still waiting there is canceled (CancelReason
+// PayoutCancelRemoved): its reference is free again (ReleasedReference),
+// and its record is kept, with no BatchID. It never cancels a request sent
+// from the list already: Cancel does. The results come one per id (given
+// twice, once), in the order given. A request removed already comes back
+// as it is: safe to retry. No ids is an *Error with Status 400, sent
+// nowhere.
+func (s *PayoutsService) Remove(ctx context.Context, ids ...string) ([]PayoutRemoveResult, error) {
+	if len(ids) == 0 {
+		return nil, &Error{Status: http.StatusBadRequest, Message: "remove needs at least one payout request id"}
+	}
+	var out struct {
+		Results []PayoutRemoveResult `json:"results"`
+	}
+	body := struct {
+		IDs []string `json:"ids"`
+	}{ids}
+	err := s.c.do(ctx, http.MethodPost, "/v1/payouts/remove", body, &out, true)
+	return out.Results, err
+}
+
+// Cancel takes a payout request still in your open list out of it (its
+// record is kept: CancelReason PayoutCancelRemoved, no BatchID), or cancels
+// a payment that was sent but is not on its way yet (PayoutCancelCanceled).
+// It comes back with Status PayoutItemCanceled. A payment canceled already
+// comes back as it is: safe to retry.
 func (s *PayoutsService) Cancel(ctx context.Context, id string) (*PayoutItem, error) {
 	var out payoutItemReply
 	return &out.Item, s.c.do(ctx, http.MethodDelete, "/v1/payouts/"+url.PathEscape(id), nil, &out, true)
