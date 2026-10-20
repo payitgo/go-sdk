@@ -21,10 +21,10 @@ const testKey = "8334dfeae25b9b200b75995e6e55cf8c3602120c1920bfef7a4ff8900b62088
 
 // Signed by the gateway's own signer.
 const (
-	testSecret = "05bd6b428158318cc38756fa34aa60795af0fc5d9a316dcc9b060c8ca1863fc3"
-	testHeader = "t=1760000000,v1=75eb20fb34bccab4b9121285930b076e5e60ccad0a2542bd76eb56d89744faed"
-	testBody   = `{"id":"b8e1f80bd70ae0784c7855a4","type":"payment.confirmed","livemode":false,"created_at":"2026-10-09T12:00:00Z","data":{"id":"040ffd5925d40e11c67b7238","order_id":"ORD-1","status":"confirmed","usd_amount":"10"}}`
-	otherSecret  = "bd4106123e659e259c401119d0c7ef0a221df306a5a414b6fb6a579499962d26"
+	testSecret  = "05bd6b428158318cc38756fa34aa60795af0fc5d9a316dcc9b060c8ca1863fc3"
+	testHeader  = "t=1760000000,v1=75eb20fb34bccab4b9121285930b076e5e60ccad0a2542bd76eb56d89744faed"
+	testBody    = `{"id":"b8e1f80bd70ae0784c7855a4","type":"payment.confirmed","livemode":false,"created_at":"2026-10-09T12:00:00Z","data":{"id":"040ffd5925d40e11c67b7238","order_id":"ORD-1","status":"confirmed","usd_amount":"10"}}`
+	otherSecret = "bd4106123e659e259c401119d0c7ef0a221df306a5a414b6fb6a579499962d26"
 )
 
 func sign(secret string, t int64, body string) string {
@@ -574,3 +574,667 @@ func TestDepositFields(t *testing.T) {
 		}
 	}
 }
+
+// ── Mass payouts, against a fake gateway ─────────────────────────────────────
+
+// testPayoutRequest is a payout request in the open list, as POST /v1/payouts
+// returns it.
+const testPayoutRequest = `{"id":"4e6a8c0b2d4f6a1c3e5b7d9a","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":false,` +
+	`"batch_id":"7c3e5a9b1d2f4e6a8c0b2d4f","reference":"WD-7731","row":3,"recipient":{"name":"Ana Silva"},` +
+	`"asset":"USDT_TRC20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron",` +
+	`"address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi","amount":"120","send_amount":"120","platform_fee":"0.6",` +
+	`"network_fee":"5.748213","fee":"6.348213","debit":"126.348213","usd_rate":"1","amount_usd":"120","status":"ready",` +
+	`"errors":[],"warnings":[{"code":"new_recipient","field":"address","message":"you never paid this address","hint":"its payment waits 24 hours after funding"}],` +
+	`"created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T09:15:02.4Z"}`
+
+// testPayoutSent is a payment that went, with every field a sent payment has.
+const testPayoutSent = `{"id":"8b2d4f6a1c3e5a7b9d0f2c4e","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
+	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","reference":"payroll-2026-10-ana","row":1,` +
+	`"recipient":{"name":"Ana Silva","email":"ana@example.com","note":"October salary"},"asset":"USDT_TRC20","ticker":"USDT",` +
+	`"icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron","address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi",` +
+	`"amount":"120","send_amount":"120","platform_fee":"0.6","network_fee":"5.748213","fee":"6.348213","debit":"126.348213",` +
+	`"usd_rate":"1","amount_usd":"120","status":"sent","errors":[],"warnings":[],"cooling_until":"2026-10-20T09:20:00Z",` +
+	`"tx_id":"3c9f1a7e5b2d8c4f6a0e9b3d7c1f5a2e8b4d0c6f9a3e7b1d5c8f2a6e0b4d9c3f",` +
+	`"explorer_url":"https://tronscan.org/#/transaction/3c9f1a7e5b2d8c4f6a0e9b3d7c1f5a2e8b4d0c6f9a3e7b1d5c8f2a6e0b4d9c3f",` +
+	`"sent_at":"2026-10-20T09:31:12.6Z","created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T09:31:12.6Z"}`
+
+// testPayoutCanceled is a funded payment canceled before it was sent: its
+// reference given back, its fee credited.
+const testPayoutCanceled = `{"id":"9c1e3a5b7d9f2b4d6f8a0c2e","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
+	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","released_reference":"payroll-2026-10-ben","row":2,"recipient":{},` +
+	`"asset":"USDT_BEP20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_BEP20.svg","chain":"bsc",` +
+	`"address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed","amount":"250","send_amount":"250","platform_fee":"1.25",` +
+	`"network_fee":"0.01183421","fee":"1.26183421","debit":"251.26183421","usd_rate":"1","amount_usd":"250",` +
+	`"status":"canceled","errors":[],"warnings":[],"fee_credit":"1.26183421",` +
+	`"created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T09:20:00Z"}`
+
+// testPayoutBatch is a submitted batch waiting for funds.
+const testPayoutBatch = `{"id":"6a1f3c8e2d9b4a7051c3e8f2","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
+	`"reference":"payroll-2026-10","name":"October payroll","source":"api","inbox":false,"open":false,` +
+	`"created_by":"5e1a9c3d7b2f40e8a6c4d2b1","by_api_key":true,"fee_paid_by":"merchant","convert":"convert","convert_from":"USDT_TRC20",` +
+	`"webhook_url":"https://acme.example/payitgo/payouts","status":"awaiting_funds",` +
+	`"waiting":{"reason":"funds","note":"top up the payout wallet: 126.348213 USDT_TRC20 on Tron (TRC-20)",` +
+	`"since":"2026-10-20T09:16:40.12Z","shortfall":[{"asset":"USDT_TRC20","network":"Tron (TRC-20)",` +
+	`"amount":"126.348213","address":"TMkq7dZ3vN8xR2pB6cH9sJ4fL1wY5tGaQe"}]},` +
+	`"totals":[{"asset":"USDT_TRC20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg",` +
+	`"chain":"tron","network":"Tron (TRC-20)","items":1,"amount":"120","send_amount":"120","platform_fee":"0.6",` +
+	`"network_fee":"5.748213","fee":"6.348213","debit":"126.348213","debit_usd":"126.35","saved_usd":"0"}],` +
+	`"counts":{"total":2,"invalid":1,"ready":1,"cooling":0,"queued":0,"sending":0,"sent":0,"failed":0,"canceled":0,"claimable":0,"expired":0},` +
+	`"total_usd":"126.35","quote_expires_at":"2026-10-20T10:15:02.41Z","approvals_needed":1,` +
+	`"approvals":[{"user_id":"9b2e4c71d8a05f3e6c1a7b24","at":"2026-10-20T09:16:30Z"}],` +
+	`"submitted_by":"5e1a9c3d7b2f40e8a6c4d2b1","submitted_at":"2026-10-20T09:16:20.09Z",` +
+	`"created_at":"2026-10-20T09:15:01.87Z","updated_at":"2026-10-20T09:16:40.12Z"}`
+
+// testPayoutInbox is the open list of payout requests, a page of it.
+const testPayoutInbox = `{"inbox":{"id":"7c3e5a9b1d2f4e6a8c0b2d4f","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":false,` +
+	`"name":"Payout requests","source":"requests","inbox":true,"open":true,"created_by":"requests","by_api_key":false,` +
+	`"fee_paid_by":"merchant","convert":"same_network","status":"quoted","totals":[{"asset":"USDT_TRC20","ticker":"USDT",` +
+	`"icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron","network":"Tron (TRC-20)","items":1,` +
+	`"amount":"120","send_amount":"120","platform_fee":"0.6","network_fee":"5.748213","fee":"6.348213",` +
+	`"debit":"126.348213","debit_usd":"126.35","saved_usd":"0"}],` +
+	`"counts":{"total":3,"invalid":2,"ready":1,"cooling":0,"queued":0,"sending":0,"sent":0,"failed":0,"canceled":0,"claimable":0,"expired":0},` +
+	`"total_usd":"126.35","approvals_needed":0,"approvals":[],"created_at":"2026-10-19T08:00:00Z",` +
+	`"updated_at":"2026-10-20T09:15:02.4Z"},"coverage":[{"asset":"USDT_TRC20","ticker":"USDT","network":"Tron (TRC-20)",` +
+	`"needed":"126.348213","spendable":"100","top_up":"26.348213","address":"TMkq7dZ3vN8xR2pB6cH9sJ4fL1wY5tGaQe"}],` +
+	`"items":[` + testPayoutRequest + `],"total":3,"limit":10,"offset":20}`
+
+// testPayoutQuote prices one payment whose recipient pays the fees: nothing
+// kept, so no ids or times.
+const testPayoutQuote = `{"quote":{"livemode":true,"fee_paid_by":"recipient","convert":"same_network","convert_from":"","totals":[{"asset":"USDT_BEP20","ticker":"USDT",` +
+	`"icon_url":"https://api.payitgo.co/coins/USDT_BEP20.svg","chain":"bsc","network":"BNB Smart Chain (BEP-20)","items":1,` +
+	`"amount":"120","send_amount":"119.38816579","platform_fee":"0.6","network_fee":"0.01183421","fee":"0.61183421",` +
+	`"debit":"120","debit_usd":"120","saved_usd":"0"}],"total_usd":"120",` +
+	`"counts":{"total":1,"invalid":0,"ready":1,"cooling":0,"queued":0,"sending":0,"sent":0,"failed":0,"canceled":0,"claimable":0,"expired":0}},` +
+	`"items":[{"livemode":true,"row":1,"recipient":{},"asset":"USDT_BEP20","ticker":"USDT",` +
+	`"icon_url":"https://api.payitgo.co/coins/USDT_BEP20.svg","chain":"bsc","address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",` +
+	`"amount":"120","send_amount":"119.38816579","platform_fee":"0.6","network_fee":"0.01183421","fee":"0.61183421",` +
+	`"debit":"120","usd_rate":"1","amount_usd":"120","status":"ready","errors":[],"warnings":[]}]}`
+
+// testPayoutWallets is the live payout wallet: one address per network.
+const testPayoutWallets = `{"wallets":[{"chain":"tron","network":"Tron","address":"TMkq7dZ3vN8xR2pB6cH9sJ4fL1wY5tGaQe",` +
+	`"explorer_url":"https://tronscan.org/#/address/TMkq7dZ3vN8xR2pB6cH9sJ4fL1wY5tGaQe","livemode":true,` +
+	`"assets":[{"asset":"USDT_TRC20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg",` +
+	`"balance":"500","reserved":"126.348213","spendable":"373.651787","needed":"0"}]},` +
+	`{"chain":"bsc","network":"BNB Smart Chain","address":"0x8F3a6B2c9D1e4F7a0B5c8D2e6F9a1B4c7D0e3F6a",` +
+	`"explorer_url":"https://bscscan.com/address/0x8F3a6B2c9D1e4F7a0B5c8D2e6F9a1B4c7D0e3F6a","livemode":true,` +
+	`"assets":[{"asset":"USDT_BEP20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_BEP20.svg",` +
+	`"balance":"0","reserved":"0","spendable":"0","needed":"0"}],"error":"the balances could not be read just now"}]}`
+
+// testPayoutWithdrawal is a payout wallet's withdrawal that reached the
+// merchant's payout address.
+const testPayoutWithdrawal = `{"id":"1d3f5a7c9e2b4d6f8a0c2e4b","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
+	`"asset":"USDT_TRC20","chain":"tron","amount":"373.651787","fee":"12.01","send_amount":"361.641787",` +
+	`"address_id":"3e7a1c9f5b2d4e8a6c0f2b1d","address":"TWd4Kp9mR2xH7sN3vB6cJ8fL5qY1tZgEaU","status":"sent",` +
+	`"tx_id":"7e2b9d4f1a6c3e8b5d0f2a7c4e9b1d6f3a8c5e0b2d7f4a9c1e6b3d8f5a0c2e7b",` +
+	`"explorer_url":"https://tronscan.org/#/transaction/7e2b9d4f1a6c3e8b5d0f2a7c4e9b1d6f3a8c5e0b2d7f4a9c1e6b3d8f5a0c2e7b",` +
+	`"requested_by":"9b2e4c71d8a05f3e6c1a7b24","created_at":"2026-10-20T11:02:15.33Z","updated_at":"2026-10-20T11:03:40Z",` +
+	`"sent_at":"2026-10-20T11:03:40Z"}`
+
+// testPayoutClaim is a claim link, funded and emailed, waiting for its
+// recipient: no address yet, two other coins offered.
+const testPayoutClaim = `{"id":"2a4c6e8b0d1f3a5c7e9b1d3f","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
+	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","reference":"prize-cup-final-2","row":4,` +
+	`"recipient":{"name":"Player Two","email":"player2@example.com"},"asset":"USDT_TRC20","ticker":"USDT",` +
+	`"icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron","address":"","amount":"100","send_amount":"100",` +
+	`"platform_fee":"0.5","network_fee":"5.748213","fee":"6.248213","debit":"106.248213","usd_rate":"1","amount_usd":"100",` +
+	`"status":"claimable","errors":[],"warnings":[],"claim":{"email":"player2@example.com","assets":["USDT_BEP20","BTC"],` +
+	`"expires_at":"2026-11-19T09:16:41Z","emailed":1,"last_email_at":"2026-10-20T09:16:41Z","extended":0,` +
+	`"url":"https://payitgo.co/pay/claim/q3Vh8sK2mN7xR4tB9cJ6fL1wY5zGaQeU"},` +
+	`"created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T09:16:41Z"}`
+
+// testPayoutClaimed is that claim link once its recipient chose USDT on BNB
+// Smart Chain: the payment is now in that coin, funded_* say what it was.
+const testPayoutClaimed = `{"id":"2a4c6e8b0d1f3a5c7e9b1d3f","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
+	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","reference":"prize-cup-final-2","row":4,` +
+	`"recipient":{"name":"Player Two","email":"player2@example.com"},"asset":"USDT_BEP20","ticker":"USDT",` +
+	`"icon_url":"https://api.payitgo.co/coins/USDT_BEP20.svg","chain":"bsc","address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",` +
+	`"amount":"100","send_amount":"100","platform_fee":"0.5","network_fee":"0.01183421","fee":"0.51183421","debit":"100.51183421",` +
+	`"usd_rate":"1","amount_usd":"100","status":"queued","errors":[],"warnings":[],"claim":{"email":"player2@example.com",` +
+	`"assets":["USDT_BEP20","BTC"],"expires_at":"2026-11-19T09:16:41Z","claimed_at":"2026-10-21T18:02:10Z","emailed":1,` +
+	`"last_email_at":"2026-10-20T09:16:41Z","extended":0,"funded_asset":"USDT_TRC20","funded_amount":"100",` +
+	`"url":"https://payitgo.co/pay/claim/q3Vh8sK2mN7xR4tB9cJ6fL1wY5zGaQeU"},` +
+	`"created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-21T18:02:10Z"}`
+
+// testPayoutConverted is a payment of 0.01 BTC paid from the wallet's USDT on
+// Tron, converted on its way, and sent.
+const testPayoutConverted = `{"id":"3b5d7f9a1c3e5b7d9f1a3c5e","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
+	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","reference":"payroll-2026-10-dana","row":5,"recipient":{"name":"Dana Ito"},` +
+	`"asset":"USDT_TRC20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron",` +
+	`"address":"bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq","amount":"683.4","send_amount":"683.4","platform_fee":"3.42",` +
+	`"network_fee":"5.748213","fee":"13.268213","debit":"696.668213","usd_rate":"1","amount_usd":"683.4","status":"sent",` +
+	`"errors":[],"warnings":[],"tx_id":"9a1c3e5b7d9f2a4c6e8b0d1f3a5c7e9b1d3f5a7c9e2b4d6f8a0c2e4b6d8f0a1c",` +
+	`"convert":{"to":"BTC","ticker":"BTC","network":"Bitcoin","to_amount":"0.01","estimate":"0.01002","amount_out":"0.010011"},` +
+	`"conversion_fee":"4.1","sent_at":"2026-10-20T10:02:44Z","created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T10:02:44Z"}`
+
+// testPayoutSchedule is a monthly payroll schedule after a run, as its
+// webhooks tell it (no rows).
+const testPayoutSchedule = `{"id":"8d0f2b4c6e8a1c3e5d7f9b1a","livemode":true,"name":"Monthly payroll","status":"active",` +
+	`"cadence":"monthly","weekday":0,"day":-1,"at":"09:00","timezone":"Africa/Harare","fee_paid_by":"merchant",` +
+	`"auto_submit":true,"remind_days":3,"totals":[{"asset":"USDT_TRC20","ticker":"USDT","items":1,"amount":"1500"}],` +
+	`"next_run_at":"2026-11-30T07:00:00Z","last_run_at":"2026-10-31T07:00:00Z","last_batch_id":"6a1f3c8e2d9b4a7051c3e8f2",` +
+	`"last_error":"","runs":4}`
+
+// sameJSON checks that v encodes to the JSON object sent: every field the
+// gateway sent is kept, and none is added.
+func sameJSON(t *testing.T, name string, v any, sent string) {
+	t.Helper()
+	var want, got any
+	back, _ := json.Marshal(v)
+	if err := json.Unmarshal([]byte(sent), &want); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(back, &got); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("%s: %s, want %s (%v)", name, back, sent, err)
+	}
+}
+
+// Every payout method sends its method, path, query and body, with the key.
+func TestPayoutRequests(t *testing.T) {
+	ctx := context.Background()
+	tag := uint32(7)
+	items := []PayoutParams{
+		{Reference: "payroll-2026-10-ana", Asset: "USDT_TRC20", Address: "TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi", Amount: "120", Name: "Ana Silva", Email: "ana@example.com", Note: "October salary"},
+		{Asset: "USDT_BEP20", Address: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", Amount: "250.5"},
+	}
+	const itemsJSON = `[{"reference":"payroll-2026-10-ana","asset":"USDT_TRC20","address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi",` +
+		`"amount":"120","name":"Ana Silva","email":"ana@example.com","note":"October salary"},` +
+		`{"asset":"USDT_BEP20","address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed","amount":"250.5"}]`
+	cases := []struct {
+		name                string
+		reply               string
+		call                func(*Client) error
+		method, path, query string
+		body                string // "" when none is sent
+	}{
+		{"Payouts.Request", `{"item":` + testPayoutRequest + `}`, func(c *Client) error {
+			_, err := c.Payouts.Request(ctx, &PayoutParams{Reference: "WD-7731", Asset: "USDT_TRC20", Address: "TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi", Amount: "120", Name: "Ana Silva"})
+			return err
+		}, http.MethodPost, "/v1/payouts", "", `{"reference":"WD-7731","asset":"USDT_TRC20","address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi","amount":"120","name":"Ana Silva"}`},
+		{"Payouts.Request with a tag", `{"item":` + testPayoutRequest + `}`, func(c *Client) error {
+			_, err := c.Payouts.Request(ctx, &PayoutParams{Asset: "XRP", Address: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe", Tag: &tag, Amount: "20"})
+			return err
+		}, http.MethodPost, "/v1/payouts", "", `{"asset":"XRP","address":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","tag":7,"amount":"20"}`},
+		{"Payouts.Request a claim link, emailed", `{"item":` + testPayoutClaim + `}`, func(c *Client) error {
+			_, err := c.Payouts.Request(ctx, &PayoutParams{Reference: "prize-cup-final-2", Asset: "USDT_TRC20", Amount: "100", Name: "Player Two",
+				Email: "player2@example.com", Claim: true, ClaimAssets: []string{"USDT_BEP20", "BTC"}})
+			return err
+		}, http.MethodPost, "/v1/payouts", "", `{"reference":"prize-cup-final-2","asset":"USDT_TRC20","amount":"100","name":"Player Two",` +
+			`"email":"player2@example.com","claim":true,"claim_assets":["USDT_BEP20","BTC"]}`},
+		{"Payouts.Request a claim link to share", `{"item":` + testPayoutClaim + `}`, func(c *Client) error {
+			_, err := c.Payouts.Request(ctx, &PayoutParams{Asset: "USDT_BEP20", Amount: "25", Claim: true})
+			return err
+		}, http.MethodPost, "/v1/payouts", "", `{"asset":"USDT_BEP20","amount":"25","claim":true}`},
+		{"Payouts.Retrieve", `{"item":` + testPayoutSent + `}`, func(c *Client) error {
+			_, err := c.Payouts.Retrieve(ctx, "8b2d4f6a1c3e5a7b9d0f2c4e")
+			return err
+		}, http.MethodGet, "/v1/payouts/8b2d4f6a1c3e5a7b9d0f2c4e", "", ""},
+		{"Payouts.Retrieve escapes the id", `{"item":` + testPayoutSent + `}`, func(c *Client) error {
+			_, err := c.Payouts.Retrieve(ctx, "a b/c")
+			return err
+		}, http.MethodGet, "/v1/payouts/a%20b%2Fc", "", ""},
+		{"Payouts.RetrieveByReference", `{"item":` + testPayoutSent + `}`, func(c *Client) error {
+			_, err := c.Payouts.RetrieveByReference(ctx, "payroll 2026/10&ana")
+			return err
+		}, http.MethodGet, "/v1/payouts", "reference=payroll+2026%2F10%26ana", ""},
+		{"Payouts.Inbox", testPayoutInbox, func(c *Client) error {
+			_, err := c.Payouts.Inbox(ctx, &PayoutListParams{Status: "ready,invalid", Limit: 10, Offset: 20})
+			return err
+		}, http.MethodGet, "/v1/payouts/inbox", "limit=10&offset=20&status=ready%2Cinvalid", ""},
+		{"Payouts.Inbox without params", testPayoutInbox, func(c *Client) error {
+			_, err := c.Payouts.Inbox(ctx, nil)
+			return err
+		}, http.MethodGet, "/v1/payouts/inbox", "", ""},
+		{"Payouts.Send every valid request", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
+			_, err := c.Payouts.Send(ctx)
+			return err
+		}, http.MethodPost, "/v1/payouts/send", "", `{}`},
+		{"Payouts.Send some", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
+			_, err := c.Payouts.Send(ctx, "4e6a8c0b2d4f6a1c3e5b7d9a", "5f7b9d1c3e5a7b2d4f6a8c0e")
+			return err
+		}, http.MethodPost, "/v1/payouts/send", "", `{"ids":["4e6a8c0b2d4f6a1c3e5b7d9a","5f7b9d1c3e5a7b2d4f6a8c0e"]}`},
+		{"Payouts.Cancel", `{"item":` + testPayoutCanceled + `}`, func(c *Client) error {
+			_, err := c.Payouts.Cancel(ctx, "9c1e3a5b7d9f2b4d6f8a0c2e")
+			return err
+		}, http.MethodDelete, "/v1/payouts/9c1e3a5b7d9f2b4d6f8a0c2e", "", ""},
+		{"Payouts.Quote", testPayoutQuote, func(c *Client) error {
+			_, err := c.Payouts.Quote(ctx, &PayoutQuoteParams{FeePaidBy: FeePaidByRecipient, Items: items})
+			return err
+		}, http.MethodPost, "/v1/payout-quotes", "", `{"fee_paid_by":"recipient","items":` + itemsJSON + `}`},
+		{"Payouts.Quote converting", testPayoutQuote, func(c *Client) error {
+			_, err := c.Payouts.Quote(ctx, &PayoutQuoteParams{Convert: PayoutConvert, ConvertFrom: "USDT_BEP20",
+				Items: []PayoutParams{{Asset: "XRP", Address: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe", Tag: &tag, Amount: "40"}}})
+			return err
+		}, http.MethodPost, "/v1/payout-quotes", "", `{"convert":"convert","convert_from":"USDT_BEP20",` +
+			`"items":[{"asset":"XRP","address":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","tag":7,"amount":"40"}]}`},
+		{"PayoutBatches.Create", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
+			_, err := c.PayoutBatches.Create(ctx, &PayoutBatchParams{Reference: "payroll-2026-10", Name: "October payroll",
+				FeePaidBy: FeePaidByMerchant, WebhookURL: "https://acme.example/payitgo/payouts", Items: items})
+			return err
+		}, http.MethodPost, "/v1/payout-batches", "", `{"reference":"payroll-2026-10","name":"October payroll","fee_paid_by":"merchant",` +
+			`"webhook_url":"https://acme.example/payitgo/payouts","items":` + itemsJSON + `}`},
+		{"PayoutBatches.Create converting", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
+			_, err := c.PayoutBatches.Create(ctx, &PayoutBatchParams{Reference: "payroll-2026-11", Convert: PayoutConvert, ConvertFrom: "USDT_TRC20",
+				Items: []PayoutParams{{Asset: "BTC", Address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", Amount: "0.01"}}})
+			return err
+		}, http.MethodPost, "/v1/payout-batches", "", `{"reference":"payroll-2026-11","convert":"convert","convert_from":"USDT_TRC20",` +
+			`"items":[{"asset":"BTC","address":"bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq","amount":"0.01"}]}`},
+		{"PayoutBatches.Create with only items", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
+			_, err := c.PayoutBatches.Create(ctx, &PayoutBatchParams{Items: items[1:]})
+			return err
+		}, http.MethodPost, "/v1/payout-batches", "", `{"items":[{"asset":"USDT_BEP20","address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed","amount":"250.5"}]}`},
+		{"PayoutBatches.List", `{"batches":[` + testPayoutBatch + `],"total":1,"limit":5,"offset":0}`, func(c *Client) error {
+			_, err := c.PayoutBatches.List(ctx, &PayoutListParams{Status: PayoutBatchAwaitingFunds, Limit: 5})
+			return err
+		}, http.MethodGet, "/v1/payout-batches", "limit=5&status=awaiting_funds", ""},
+		{"PayoutBatches.List without params", `{"batches":[],"total":0,"limit":50,"offset":0}`, func(c *Client) error {
+			_, err := c.PayoutBatches.List(ctx, nil)
+			return err
+		}, http.MethodGet, "/v1/payout-batches", "", ""},
+		{"PayoutBatches.Retrieve", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
+			_, err := c.PayoutBatches.Retrieve(ctx, "6a1f3c8e2d9b4a7051c3e8f2")
+			return err
+		}, http.MethodGet, "/v1/payout-batches/6a1f3c8e2d9b4a7051c3e8f2", "", ""},
+		{"PayoutBatches.Items", `{"items":[` + testPayoutSent + `],"total":1,"limit":50,"offset":0}`, func(c *Client) error {
+			_, err := c.PayoutBatches.Items(ctx, "6a1f3c8e2d9b4a7051c3e8f2", &PayoutListParams{Status: "sent,failed", Offset: 50})
+			return err
+		}, http.MethodGet, "/v1/payout-batches/6a1f3c8e2d9b4a7051c3e8f2/items", "offset=50&status=sent%2Cfailed", ""},
+		{"PayoutBatches.Items escapes the id", `{"items":[],"total":0,"limit":50,"offset":0}`, func(c *Client) error {
+			_, err := c.PayoutBatches.Items(ctx, "a b/c", nil)
+			return err
+		}, http.MethodGet, "/v1/payout-batches/a%20b%2Fc/items", "", ""},
+		{"PayoutBatches.AddItems", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
+			_, err := c.PayoutBatches.AddItems(ctx, "6a1f3c8e2d9b4a7051c3e8f2", items)
+			return err
+		}, http.MethodPost, "/v1/payout-batches/6a1f3c8e2d9b4a7051c3e8f2/items", "", `{"items":` + itemsJSON + `}`},
+		{"PayoutBatches.Quote", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
+			_, err := c.PayoutBatches.Quote(ctx, "6a1f3c8e2d9b4a7051c3e8f2")
+			return err
+		}, http.MethodPost, "/v1/payout-batches/6a1f3c8e2d9b4a7051c3e8f2/quote", "", ""},
+		{"PayoutBatches.Submit", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
+			_, err := c.PayoutBatches.Submit(ctx, "6a1f3c8e2d9b4a7051c3e8f2")
+			return err
+		}, http.MethodPost, "/v1/payout-batches/6a1f3c8e2d9b4a7051c3e8f2/submit", "", ""},
+		{"PayoutBatches.Cancel", `{"batch":` + testPayoutBatch + `}`, func(c *Client) error {
+			_, err := c.PayoutBatches.Cancel(ctx, "6a1f3c8e2d9b4a7051c3e8f2")
+			return err
+		}, http.MethodPost, "/v1/payout-batches/6a1f3c8e2d9b4a7051c3e8f2/cancel", "", ""},
+		{"PayoutWallets.List", testPayoutWallets, func(c *Client) error {
+			_, err := c.PayoutWallets.List(ctx)
+			return err
+		}, http.MethodGet, "/v1/payout-wallets", "", ""},
+		{"PayoutWallets.SimulateTopUp", testPayoutWallets, func(c *Client) error {
+			_, err := c.PayoutWallets.SimulateTopUp(ctx, "USDT_TRC20", "1000")
+			return err
+		}, http.MethodPost, "/v1/payout-wallets/USDT_TRC20/simulate-top-up", "", `{"amount":"1000"}`},
+	}
+	for _, tc := range cases {
+		c, rec := fakeGateway(t, http.StatusOK, tc.reply)
+		if err := tc.call(c); err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if rec.method != tc.method || rec.path != tc.path || rec.query != tc.query || rec.auth != "Bearer "+testKey {
+			t.Errorf("%s: sent %s %s?%s (auth %q), want %s %s?%s", tc.name, rec.method, rec.path, rec.query, rec.auth, tc.method, tc.path, tc.query)
+		}
+		var want map[string]any
+		if tc.body != "" {
+			if err := json.Unmarshal([]byte(tc.body), &want); err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+		}
+		if !reflect.DeepEqual(rec.body, want) {
+			t.Errorf("%s: body %v, want %v", tc.name, rec.body, want)
+		}
+		if (rec.contentType == "application/json") != (tc.body != "") {
+			t.Errorf("%s: Content-Type %q with body %q", tc.name, rec.contentType, tc.body)
+		}
+	}
+}
+
+// A payout request is safe to retry: the first answer is 201, a request
+// whose reference a payment carries already 200 with that payment, and both
+// come back the same.
+func TestPayoutsRequestRetry(t *testing.T) {
+	for _, status := range []int{http.StatusCreated, http.StatusOK} {
+		c, _ := fakeGateway(t, status, `{"item":`+testPayoutRequest+`}`)
+		item, err := c.Payouts.Request(context.Background(), &PayoutParams{Reference: "WD-7731", Asset: "USDT_TRC20", Address: "TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi", Amount: "120"})
+		if err != nil {
+			t.Fatalf("%d: %v", status, err)
+		}
+		if item.ID != "4e6a8c0b2d4f6a1c3e5b7d9a" || item.Reference != "WD-7731" || item.Status != PayoutItemReady || item.Debit != "126.348213" ||
+			len(item.Warnings) != 1 || item.Warnings[0].Code != IssueNewRecipient || item.Recipient.Name != "Ana Silva" || item.Livemode {
+			t.Errorf("%d: item %+v", status, item)
+		}
+		sameJSON(t, "request", item, testPayoutRequest)
+	}
+}
+
+// A request that fails a check is kept, invalid, with its errors.
+func TestPayoutsRequestInvalid(t *testing.T) {
+	invalid := strings.NewReplacer(`"status":"ready"`, `"status":"invalid"`, `"errors":[]`,
+		`"errors":[{"code":"wrong_network","field":"address","message":"this address is for Tron, not BNB Smart Chain","hint":"pay it in a coin of that network, or check the address"}]`).
+		Replace(testPayoutRequest)
+	c, _ := fakeGateway(t, http.StatusCreated, `{"item":`+invalid+`}`)
+	item, err := c.Payouts.Request(context.Background(), &PayoutParams{Asset: "USDT_BEP20", Address: "TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi", Amount: "120"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Status != PayoutItemInvalid || len(item.Errors) != 1 || item.Errors[0].Code != IssueWrongNetwork || item.Errors[0].Field != "address" ||
+		item.Errors[0].Hint == "" {
+		t.Errorf("item %+v", item)
+	}
+}
+
+func TestPayoutsRetrieve(t *testing.T) {
+	c, _ := fakeGateway(t, http.StatusOK, `{"item":`+testPayoutSent+`}`)
+	for name, get := range map[string]func() (*PayoutItem, error){
+		"by id": func() (*PayoutItem, error) {
+			return c.Payouts.Retrieve(context.Background(), "8b2d4f6a1c3e5a7b9d0f2c4e")
+		},
+		"by reference": func() (*PayoutItem, error) {
+			return c.Payouts.RetrieveByReference(context.Background(), "payroll-2026-10-ana")
+		},
+	} {
+		item, err := get()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if item.Status != PayoutItemSent || len(item.TxID) != 64 || item.SentAt == nil || item.CoolingUntil == nil ||
+			!item.CreatedAt.Equal(time.Date(2026, 10, 20, 9, 15, 1, 880_000_000, time.UTC)) || item.Recipient.Note != "October salary" {
+			t.Errorf("%s: item %+v", name, item)
+		}
+		sameJSON(t, name, item, testPayoutSent)
+	}
+}
+
+func TestPayoutsCancel(t *testing.T) {
+	c, _ := fakeGateway(t, http.StatusOK, `{"item":`+testPayoutCanceled+`}`)
+	item, err := c.Payouts.Cancel(context.Background(), "9c1e3a5b7d9f2b4d6f8a0c2e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Status != PayoutItemCanceled || item.Reference != "" || item.ReleasedReference != "payroll-2026-10-ben" || item.FeeCredit != "1.26183421" {
+		t.Errorf("item %+v", item)
+	}
+	sameJSON(t, "canceled", item, testPayoutCanceled)
+}
+
+func TestPayoutsInbox(t *testing.T) {
+	c, _ := fakeGateway(t, http.StatusOK, testPayoutInbox)
+	inbox, err := c.Payouts.Inbox(context.Background(), &PayoutListParams{Limit: 10, Offset: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inbox.Inbox.Inbox || !inbox.Inbox.Open || inbox.Inbox.Counts.Ready != 1 || inbox.Total != 3 || inbox.Limit != 10 || inbox.Offset != 20 ||
+		len(inbox.Coverage) != 1 || inbox.Coverage[0].TopUp != "26.348213" || inbox.Coverage[0].Address == "" ||
+		len(inbox.Items) != 1 || inbox.Items[0].BatchID != inbox.Inbox.ID {
+		t.Errorf("inbox %+v", inbox)
+	}
+	sameJSON(t, "inbox", inbox, testPayoutInbox)
+}
+
+func TestPayoutsQuote(t *testing.T) {
+	c, _ := fakeGateway(t, http.StatusOK, testPayoutQuote)
+	q, err := c.Payouts.Quote(context.Background(), &PayoutQuoteParams{FeePaidBy: FeePaidByRecipient,
+		Items: []PayoutParams{{Asset: "USDT_BEP20", Address: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", Amount: "120"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Quote.FeePaidBy != FeePaidByRecipient || q.Quote.Convert != PayoutSameNetwork || q.Quote.ConvertFrom != "" || q.Quote.TotalUSD != "120" || len(q.Quote.Totals) != 1 || q.Quote.Totals[0].SendAmount != "119.38816579" ||
+		q.Quote.Counts.Ready != 1 || len(q.Items) != 1 || q.Items[0].ID != "" || !q.Items[0].CreatedAt.IsZero() || q.Items[0].Fee != "0.61183421" {
+		t.Errorf("quote %+v", q)
+	}
+	var sent struct {
+		Quote json.RawMessage `json:"quote"`
+	}
+	json.Unmarshal([]byte(testPayoutQuote), &sent)
+	sameJSON(t, "quote", q.Quote, string(sent.Quote))
+}
+
+// Creating a batch is safe to retry: 201 for a new one, 200 for the batch
+// its reference already names, both the same.
+func TestPayoutBatchesCreate(t *testing.T) {
+	for _, status := range []int{http.StatusCreated, http.StatusOK} {
+		c, _ := fakeGateway(t, status, `{"batch":`+testPayoutBatch+`}`)
+		b, err := c.PayoutBatches.Create(context.Background(), &PayoutBatchParams{Reference: "payroll-2026-10",
+			Items: []PayoutParams{{Asset: "USDT_TRC20", Address: "TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi", Amount: "120"}}})
+		if err != nil {
+			t.Fatalf("%d: %v", status, err)
+		}
+		if b.ID != "6a1f3c8e2d9b4a7051c3e8f2" || b.Reference != "payroll-2026-10" || b.Status != PayoutBatchAwaitingFunds {
+			t.Errorf("%d: batch %+v", status, b)
+		}
+		sameJSON(t, "batch", b, testPayoutBatch)
+	}
+}
+
+func TestPayoutBatchFields(t *testing.T) {
+	c, _ := fakeGateway(t, http.StatusOK, `{"batch":`+testPayoutBatch+`}`)
+	b, err := c.PayoutBatches.Submit(context.Background(), "6a1f3c8e2d9b4a7051c3e8f2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Waiting == nil || b.Waiting.Reason != PayoutWaitFunds || len(b.Waiting.Shortfall) != 1 || b.Waiting.Shortfall[0].Amount != "126.348213" ||
+		b.Waiting.Shortfall[0].Address != "TMkq7dZ3vN8xR2pB6cH9sJ4fL1wY5tGaQe" || len(b.Totals) != 1 || b.Totals[0].Items != 1 ||
+		b.Totals[0].DebitUSD != "126.35" || b.Counts.Total != 2 || b.Counts.Invalid != 1 || b.TotalUSD != "126.35" ||
+		b.QuoteExpiresAt == nil || b.ApprovalsNeeded != 1 || len(b.Approvals) != 1 || b.SubmittedAt == nil || !b.ByAPIKey ||
+		b.FeePaidBy != FeePaidByMerchant || b.WebhookURL == "" || b.Rejection != nil || b.Convert != PayoutConvert || b.ConvertFrom != "USDT_TRC20" {
+		t.Errorf("batch %+v", b)
+	}
+}
+
+func TestPayoutBatchesLists(t *testing.T) {
+	c, _ := fakeGateway(t, http.StatusOK, `{"batches":[`+testPayoutBatch+`],"total":7,"limit":1,"offset":3}`)
+	list, err := c.PayoutBatches.List(context.Background(), &PayoutListParams{Limit: 1, Offset: 3})
+	if err != nil || len(list.Batches) != 1 || list.Batches[0].ID != "6a1f3c8e2d9b4a7051c3e8f2" || list.Total != 7 || list.Limit != 1 || list.Offset != 3 {
+		t.Errorf("batches %+v %v", list, err)
+	}
+	c, _ = fakeGateway(t, http.StatusOK, `{"items":[`+testPayoutSent+`,`+testPayoutCanceled+`],"total":2,"limit":50,"offset":0}`)
+	items, err := c.PayoutBatches.Items(context.Background(), "6a1f3c8e2d9b4a7051c3e8f2", nil)
+	if err != nil || len(items.Items) != 2 || items.Items[0].Status != PayoutItemSent || items.Items[1].Status != PayoutItemCanceled ||
+		items.Total != 2 || items.Limit != 50 {
+		t.Errorf("items %+v %v", items, err)
+	}
+}
+
+func TestPayoutWallets(t *testing.T) {
+	c, _ := fakeGateway(t, http.StatusOK, testPayoutWallets)
+	wallets, err := c.PayoutWallets.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wallets) != 2 || wallets[0].Chain != "tron" || wallets[0].Address != "TMkq7dZ3vN8xR2pB6cH9sJ4fL1wY5tGaQe" ||
+		len(wallets[0].Assets) != 1 || wallets[0].Assets[0].Spendable != "373.651787" || wallets[1].Error == "" {
+		t.Errorf("wallets %+v", wallets)
+	}
+	sameJSON(t, "wallets", map[string]any{"wallets": wallets}, testPayoutWallets)
+
+	const topped = `{"wallets":[{"chain":"tron","network":"Tron","address":"TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE","livemode":false,` +
+		`"assets":[{"asset":"USDT_TRC20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","balance":"1000",` +
+		`"reserved":"0","spendable":"1000","needed":"0"}]}]}`
+	c, _ = fakeGateway(t, http.StatusOK, topped)
+	wallets, err = c.PayoutWallets.SimulateTopUp(context.Background(), "USDT_TRC20", "1000")
+	if err != nil || len(wallets) != 1 || wallets[0].Livemode || wallets[0].Assets[0].Balance != "1000" {
+		t.Errorf("topped up: %+v %v", wallets, err)
+	}
+	sameJSON(t, "topped up", map[string]any{"wallets": wallets}, topped)
+}
+
+// A claim link comes back without an address, with its link; once claimed
+// in another coin, it says what it was funded with.
+func TestPayoutClaimLinks(t *testing.T) {
+	c, _ := fakeGateway(t, http.StatusCreated, `{"item":`+testPayoutClaim+`}`)
+	item, err := c.Payouts.Request(context.Background(), &PayoutParams{Asset: "USDT_TRC20", Amount: "100", Email: "player2@example.com", Claim: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Status != PayoutItemClaimable || item.Address != "" || item.Claim == nil || item.Claim.Email != "player2@example.com" ||
+		!reflect.DeepEqual(item.Claim.Assets, []string{"USDT_BEP20", "BTC"}) || item.Claim.ExpiresAt == nil || item.Claim.ClaimedAt != nil ||
+		item.Claim.Emailed != 1 || item.Claim.LastEmailAt == nil || item.Claim.URL != "https://payitgo.co/pay/claim/q3Vh8sK2mN7xR4tB9cJ6fL1wY5zGaQeU" ||
+		item.Claim.FundedAsset != "" {
+		t.Errorf("claim link %+v %+v", item, item.Claim)
+	}
+	sameJSON(t, "claim link", item, testPayoutClaim)
+
+	c, _ = fakeGateway(t, http.StatusOK, `{"item":`+testPayoutClaimed+`}`)
+	item, err = c.Payouts.Retrieve(context.Background(), "2a4c6e8b0d1f3a5c7e9b1d3f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Status != PayoutItemQueued || item.Asset != "USDT_BEP20" || item.Address == "" || item.Claim == nil || item.Claim.ClaimedAt == nil ||
+		item.Claim.FundedAsset != "USDT_TRC20" || item.Claim.FundedAmount != "100" {
+		t.Errorf("claimed %+v %+v", item, item.Claim)
+	}
+	sameJSON(t, "claimed", item, testPayoutClaimed)
+}
+
+// A converted payment is in the wallet's coin, with what it converts into.
+func TestPayoutConverted(t *testing.T) {
+	c, _ := fakeGateway(t, http.StatusOK, `{"item":`+testPayoutConverted+`}`)
+	item, err := c.Payouts.RetrieveByReference(context.Background(), "payroll-2026-10-dana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Asset != "USDT_TRC20" || item.Chain != "tron" || item.ConversionFee != "4.1" || item.Convert == nil || item.Convert.To != "BTC" ||
+		item.Convert.Ticker != "BTC" || item.Convert.Network != "Bitcoin" || item.Convert.ToAmount != "0.01" || item.Convert.Estimate != "0.01002" ||
+		item.Convert.AmountOut != "0.010011" || item.Claim != nil {
+		t.Errorf("converted %+v %+v", item, item.Convert)
+	}
+	sameJSON(t, "converted", item, testPayoutConverted)
+
+	// A payment paid in its own coin has neither.
+	var plain PayoutItem
+	if err := json.Unmarshal([]byte(testPayoutSent), &plain); err != nil || plain.Convert != nil || plain.ConversionFee != "" || plain.Claim != nil {
+		t.Errorf("plain %+v %v", plain, err)
+	}
+}
+
+func TestPayoutErrors(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		status  int
+		message string
+		call    func(*Client) error
+	}{
+		{http.StatusForbidden, "this api key cannot make payouts: turn payouts on for it in the dashboard", func(c *Client) error {
+			_, err := c.Payouts.Request(ctx, &PayoutParams{Asset: "USDT_TRC20", Address: "TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi", Amount: "120"})
+			return err
+		}},
+		{http.StatusBadRequest, "no valid payout request to send", func(c *Client) error {
+			_, err := c.Payouts.Send(ctx)
+			return err
+		}},
+		{http.StatusNotFound, "not found", func(c *Client) error {
+			_, err := c.PayoutBatches.Retrieve(ctx, "6a1f3c8e2d9b4a7051c3e8f2")
+			return err
+		}},
+		{http.StatusConflict, "its prices expired: get a new quote first", func(c *Client) error {
+			_, err := c.PayoutBatches.Submit(ctx, "6a1f3c8e2d9b4a7051c3e8f2")
+			return err
+		}},
+		{http.StatusBadRequest, "only a test wallet is topped up on paper: use a test key", func(c *Client) error {
+			_, err := c.PayoutWallets.SimulateTopUp(ctx, "USDT_TRC20", "1000")
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		reply, _ := json.Marshal(map[string]string{"error": tc.message})
+		c, _ := fakeGateway(t, tc.status, string(reply))
+		var perr *Error
+		if err := tc.call(c); !errors.As(err, &perr) || perr.Status != tc.status || perr.Message != tc.message {
+			t.Errorf("%d %s: err %v", tc.status, tc.message, err)
+		}
+	}
+}
+
+// Payout events carry a batch, a payment or a withdrawal, each decoded whole.
+func TestPayoutEvents(t *testing.T) {
+	rejected := strings.Replace(testPayoutBatch, `"submitted_by"`,
+		`"rejection":{"by":"9b2e4c71d8a05f3e6c1a7b24","at":"2026-10-20T09:40:00Z","reason":"wrong amounts"},"submitted_by"`, 1)
+	failed := strings.NewReplacer(`"status":"sent"`, `"status":"failed"`, `"sent_at":"2026-10-20T09:31:12.6Z",`,
+		`"fail_reason":"the transfer failed on chain three times",`).Replace(testPayoutSent)
+	expired := strings.NewReplacer(`"status":"claimable"`, `"status":"expired"`).Replace(testPayoutClaim)
+	// A schedule that has not run yet: no last run, batch or error.
+	first := strings.NewReplacer(`"last_run_at":"2026-10-31T07:00:00Z","last_batch_id":"6a1f3c8e2d9b4a7051c3e8f2"`,
+		`"last_run_at":null,"last_batch_id":""`, `"runs":4`, `"runs":0`).Replace(testPayoutSchedule)
+	funding := `{"schedule":` + first + `,"shortfall":[{"asset":"USDT_TRC20","network":"Tron (TRC-20)",` +
+		`"amount":"1506.25","address":"TMkq7dZ3vN8xR2pB6cH9sJ4fL1wY5tGaQe"}]}`
+	cases := []struct {
+		typ, data string
+		decode    func(*Event) (any, error)
+	}{
+		{EventPayoutBatchRejected, rejected, func(e *Event) (any, error) { return e.PayoutBatch() }},
+		{EventPayoutItemFailed, failed, func(e *Event) (any, error) { return e.PayoutItem() }},
+		{EventPayoutWalletWithdrawn, testPayoutWithdrawal, func(e *Event) (any, error) { return e.PayoutWithdrawal() }},
+		{EventPayoutItemClaimed, testPayoutClaimed, func(e *Event) (any, error) { return e.PayoutItem() }},
+		{EventPayoutItemClaimExpired, expired, func(e *Event) (any, error) { return e.PayoutItem() }},
+		{EventPayoutScheduleRun, testPayoutSchedule, func(e *Event) (any, error) { return e.PayoutSchedule() }},
+		{EventPayoutScheduleFundingNeeded, funding, func(e *Event) (any, error) { return e.PayoutScheduleFunding() }},
+	}
+	for _, tc := range cases {
+		body := `{"id":"5c0e1f9a2b7d4e3c8a6f1b2d","type":"` + tc.typ + `","livemode":true,"created_at":"2026-10-20T09:40:00Z","data":` + tc.data + `}`
+		e, err := ConstructEvent([]byte(body), sign(testSecret, time.Now().Unix(), body), testSecret)
+		if err != nil || e.Type != tc.typ {
+			t.Fatalf("%s: %+v %v", tc.typ, e, err)
+		}
+		v, err := tc.decode(e)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.typ, err)
+		}
+		sameJSON(t, tc.typ, v, tc.data)
+		switch d := v.(type) {
+		case *PayoutBatch:
+			if d.Rejection == nil || d.Rejection.Reason != "wrong amounts" {
+				t.Errorf("%s: %+v", tc.typ, d)
+			}
+		case *PayoutItem:
+			if want := map[string]string{EventPayoutItemFailed: PayoutItemFailed, EventPayoutItemClaimed: PayoutItemQueued,
+				EventPayoutItemClaimExpired: PayoutItemExpired}[tc.typ]; d.Status != want ||
+				(tc.typ == EventPayoutItemFailed && d.FailReason == "") || (tc.typ != EventPayoutItemFailed && d.Claim == nil) {
+				t.Errorf("%s: %+v", tc.typ, d)
+			}
+		case *PayoutSchedule:
+			if d.Cadence != "monthly" || d.Day != -1 || d.NextRunAt == nil || d.LastRunAt == nil || d.LastBatchID != "6a1f3c8e2d9b4a7051c3e8f2" ||
+				!d.Livemode || len(d.Totals) != 1 || d.Totals[0].Amount != "1500" || d.Runs != 4 {
+				t.Errorf("%s: %+v", tc.typ, d)
+			}
+		case *PayoutScheduleFunding:
+			if d.Schedule.ID != "8d0f2b4c6e8a1c3e5d7f9b1a" || d.Schedule.LastRunAt != nil || d.Schedule.LastBatchID != "" ||
+				len(d.Shortfall) != 1 || d.Shortfall[0].Amount != "1506.25" ||
+				d.Shortfall[0].Address != "TMkq7dZ3vN8xR2pB6cH9sJ4fL1wY5tGaQe" {
+				t.Errorf("%s: %+v", tc.typ, d)
+			}
+		case *PayoutWithdrawal:
+			if d.Status != "sent" || d.SendAmount != "361.641787" || d.SentAt == nil {
+				t.Errorf("%s: %+v", tc.typ, d)
+			}
+		}
+	}
+	got := []string{EventPayoutBatchQuoted, EventPayoutBatchPendingApproval, EventPayoutBatchApproved, EventPayoutBatchRejected,
+		EventPayoutBatchAwaitingFunds, EventPayoutBatchProcessing, EventPayoutBatchCompleted, EventPayoutBatchCanceled,
+		EventPayoutItemSent, EventPayoutItemFailed, EventPayoutItemCanceled, EventPayoutItemClaimed, EventPayoutItemClaimExpired,
+		EventPayoutWalletWithdrawn, EventPayoutScheduleRun, EventPayoutScheduleFundingNeeded}
+	want := []string{"payout_batch.quoted", "payout_batch.pending_approval", "payout_batch.approved", "payout_batch.rejected",
+		"payout_batch.awaiting_funds", "payout_batch.processing", "payout_batch.completed", "payout_batch.canceled",
+		"payout_item.sent", "payout_item.failed", "payout_item.canceled", "payout_item.claimed", "payout_item.claim_expired",
+		"payout_wallet.withdrawn", "payout_schedule.run", "payout_schedule.funding_needed"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("event types %q, want %q", got, want)
+	}
+}
+
+func TestVersion(t *testing.T) {
+	c, rec := fakeGateway(t, http.StatusOK, `{"wallets":[]}`)
+	ua := ""
+	c.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		ua = r.Header.Get("User-Agent")
+		return http.DefaultTransport.RoundTrip(r)
+	})
+	if _, err := c.PayoutWallets.List(context.Background()); err != nil || Version != "0.6.0" || ua != "payitgo-go/0.6.0" || rec.path != "/v1/payout-wallets" {
+		t.Errorf("version %s, User-Agent %q, err %v", Version, ua, err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

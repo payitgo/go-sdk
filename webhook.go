@@ -37,12 +37,32 @@ type Event struct {
 }
 
 // Payment decodes the payment a payment.* event carries.
-func (e *Event) Payment() (*Payment, error) {
-	var p Payment
-	if err := json.Unmarshal(e.Data, &p); err != nil {
+func (e *Event) Payment() (*Payment, error) { return eventData[Payment](e) }
+
+// PayoutBatch decodes the batch a payout_batch.* event carries.
+func (e *Event) PayoutBatch() (*PayoutBatch, error) { return eventData[PayoutBatch](e) }
+
+// PayoutItem decodes the payment to a recipient a payout_item.* event carries.
+func (e *Event) PayoutItem() (*PayoutItem, error) { return eventData[PayoutItem](e) }
+
+// PayoutWithdrawal decodes the withdrawal a payout_wallet.withdrawn event carries.
+func (e *Event) PayoutWithdrawal() (*PayoutWithdrawal, error) { return eventData[PayoutWithdrawal](e) }
+
+// PayoutSchedule decodes the schedule a payout_schedule.run event carries.
+func (e *Event) PayoutSchedule() (*PayoutSchedule, error) { return eventData[PayoutSchedule](e) }
+
+// PayoutScheduleFunding decodes what a payout_schedule.funding_needed event
+// carries: the schedule, and the shortfall to send before its next run.
+func (e *Event) PayoutScheduleFunding() (*PayoutScheduleFunding, error) {
+	return eventData[PayoutScheduleFunding](e)
+}
+
+func eventData[T any](e *Event) (*T, error) {
+	var v T
+	if err := json.Unmarshal(e.Data, &v); err != nil {
 		return nil, err
 	}
-	return &p, nil
+	return &v, nil
 }
 
 // ConstructEvent verifies a webhook request and returns its event. Pass the
@@ -103,7 +123,8 @@ func ConstructEventWithTolerance(payload []byte, signatureHeader, secret string,
 // ── The webhook (IPN) ─────────────────────────────────────────────────────────
 
 // Event types: every event of the key's mode is sent. EventPing is sent by
-// WebhooksService.Test.
+// WebhooksService.Test. A payout batch made with a WebhookURL sends its
+// payout_batch.* and payout_item.* events there instead of the webhook's URL.
 const (
 	EventPaymentPartiallyPaid = "payment.partially_paid"
 	EventPaymentDetecting     = "payment.detecting"
@@ -119,6 +140,26 @@ const (
 	EventSettlementCompleted  = "settlement.completed"
 	EventSettlementFailed     = "settlement.failed"
 	EventPing                 = "ping"
+	// Mass payouts: a batch's progress (data: a PayoutBatch), each payment to
+	// a recipient (a PayoutItem), the payout wallet's withdrawals (a
+	// PayoutWithdrawal), and schedules' runs (a PayoutSchedule) and the
+	// top-ups they need (a PayoutScheduleFunding).
+	EventPayoutBatchQuoted           = "payout_batch.quoted"
+	EventPayoutBatchPendingApproval  = "payout_batch.pending_approval"
+	EventPayoutBatchApproved         = "payout_batch.approved"
+	EventPayoutBatchRejected         = "payout_batch.rejected"
+	EventPayoutBatchAwaitingFunds    = "payout_batch.awaiting_funds"
+	EventPayoutBatchProcessing       = "payout_batch.processing"
+	EventPayoutBatchCompleted        = "payout_batch.completed"
+	EventPayoutBatchCanceled         = "payout_batch.canceled"
+	EventPayoutItemSent              = "payout_item.sent"
+	EventPayoutItemFailed            = "payout_item.failed"
+	EventPayoutItemCanceled          = "payout_item.canceled"
+	EventPayoutItemClaimed           = "payout_item.claimed"       // a claim link's recipient chose the coin and address
+	EventPayoutItemClaimExpired      = "payout_item.claim_expired" // a claim link was never claimed: its money is free again
+	EventPayoutWalletWithdrawn       = "payout_wallet.withdrawn"
+	EventPayoutScheduleRun           = "payout_schedule.run"            // a schedule made its batch (or says why not)
+	EventPayoutScheduleFundingNeeded = "payout_schedule.funding_needed" // the wallet would not cover a schedule's next run
 )
 
 // Delivery statuses.
@@ -133,7 +174,7 @@ const (
 // Delivery targets.
 const (
 	TargetAccount = "account" // the webhook's URL, as it is at each attempt
-	TargetPayment = "payment" // the payment's own WebhookURL
+	TargetPayment = "payment" // the payment's (or payout batch's) own WebhookURL
 )
 
 // Webhook is the webhook (IPN) of the key's mode: the URL every event of the

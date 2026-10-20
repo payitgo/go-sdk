@@ -6,6 +6,13 @@
 //	})
 //	// send the customer to payment.CheckoutURL; fulfil on the payment.confirmed webhook
 //
+// Mass payouts pay your own clients from your payout wallet:
+//
+//	item, err := client.Payouts.Request(ctx, &payitgo.PayoutParams{
+//		Reference: "WD-7731", Asset: "USDT_TRC20", Address: "TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi", Amount: "120",
+//	})
+//	batch, err := client.Payouts.Send(ctx) // every valid request in the open list
+//
 // Use the client from your server only: the API key is a secret.
 package payitgo
 
@@ -26,7 +33,7 @@ import (
 )
 
 // Version is this library's version, sent in the User-Agent.
-const Version = "0.5.0"
+const Version = "0.6.0"
 
 // defaultBaseURL is used when neither WithBaseURL nor PAYITGO_BASE_URL is set.
 const defaultBaseURL = "https://api.payitgo.co"
@@ -237,10 +244,13 @@ func (e *Error) Error() string {
 // Client talks to the payitgo API with one secret key. IsLive says whether it
 // is a live key or a test key.
 type Client struct {
-	Payments *PaymentsService
-	Tokens   *TokensService
-	Checkout *CheckoutService
-	Webhooks *WebhooksService
+	Payments      *PaymentsService
+	Tokens        *TokensService
+	Checkout      *CheckoutService
+	Webhooks      *WebhooksService
+	Payouts       *PayoutsService
+	PayoutBatches *PayoutBatchesService
+	PayoutWallets *PayoutWalletsService
 
 	apiKey        string
 	baseURL       string
@@ -301,6 +311,9 @@ func NewClient(apiKey string, opts ...Option) (*Client, error) {
 	c.Tokens = &TokensService{c}
 	c.Checkout = &CheckoutService{c}
 	c.Webhooks = &WebhooksService{c}
+	c.Payouts = &PayoutsService{c}
+	c.PayoutBatches = &PayoutBatchesService{c}
+	c.PayoutWallets = &PayoutWalletsService{c}
 	return c, nil
 }
 

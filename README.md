@@ -1,6 +1,7 @@
 # payitgo for Go
 
-Accept crypto payments with [payitgo](https://api.payitgo.co/docs) from Go. Standard library only.
+Accept crypto payments, and pay your own clients, with [payitgo](https://api.payitgo.co/docs) from Go.
+Standard library only.
 
 Full reference, with every method, option, type and error: [api.payitgo.co/docs/sdk-go](https://api.payitgo.co/docs/sdk-go).
 
@@ -125,8 +126,9 @@ simulation is still running, `409`.
 ## Webhooks (IPN)
 
 payitgo POSTs a signed notification for every change of a payment (`payment.confirmed`,
-`payment.expired`, …), of a direct settlement and of a payout. Each mode has one webhook:
-a test key manages the test one, a live key the live one.
+`payment.expired`, …), of a direct settlement, of a payout and of your
+[mass payouts](#payouts). Each mode has one webhook: a test key manages the test one, a
+live key the live one.
 
 **Where the notifications go.** Set the URL once per mode (https:// on a public host,
 accepting POST requests), or give a payment its own when you create it:
@@ -145,7 +147,8 @@ shop, err := payitgo.NewClient(os.Getenv("PAYITGO_KEY"), payitgo.WithWebhookURL(
 ```
 
 A storefront's key cannot set the account's URL (`403`): set `WebhookURL` on its payments
-instead. Payout events always go to the webhook's URL.
+instead. Payout (`payout.*`) and payout wallet events always go to the webhook's URL; a
+payout batch made with its own `WebhookURL` sends its batch and payment events there.
 
 **The signing secret.** Every notification of a mode is signed with that mode's secret,
 whichever URL it goes to. Copy it from the dashboard or read it with
@@ -198,6 +201,176 @@ http.HandleFunc("/payitgo/ipn", func(w http.ResponseWriter, r *http.Request) {
 **Testing it.** `client.Webhooks.Test(ctx)` queues a signed `ping` event to the webhook's
 URL and returns its delivery (`400` when no URL is set).
 
+## Payouts
+
+Pay your own clients (withdrawals from your platform, payroll, prizes) from your **payout
+wallet**: one address per network, yours alone, that you top up. payitgo checks and prices
+every payment before anything leaves the wallet. Each payment is in one of the payout coins
+(`USDT_TRC20`, `USDT_BEP20`, `BTC`, … [the list](https://api.payitgo.co/docs/payouts));
+amounts are decimal strings in the coin. Reading works with any key; making, sending,
+quoting and canceling need a key with **payouts** turned on in the dashboard (`403`
+otherwise). The whole guide: [Mass payouts](https://api.payitgo.co/docs/payouts).
+
+**Payout requests, one by one.** Send each client's payout request as it comes in.
+payitgo checks and prices it at once and keeps it in your open list with its costs; send
+the list when you choose (or let it go by itself: auto-send, in your payout settings).
+
+```go
+// A client asks for a withdrawal. Your reference makes the call safe to retry:
+// the same reference again returns this payment (200 instead of 201).
+item, err := client.Payouts.Request(ctx, &payitgo.PayoutParams{
+	Reference: "WD-7731",
+	Asset:     "USDT_TRC20",
+	Address:   "TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi",
+	Amount:    "120",       // decimal string, in the coin
+	Name:      "Ana Silva", // optional: Name, Email, Note
+})
+if err != nil {
+	return err
+}
+if item.Status == payitgo.PayoutItemInvalid {
+	log.Println(item.Errors[0].Message) // kept, never sent: "this address is for Tron, not BNB Smart Chain"
+}
+// item.Fee: its platform and network fees; item.Debit: what it takes from the wallet
+
+// The open list: its requests, and what sending them needs of each coin.
+inbox, err := client.Payouts.Inbox(ctx, nil)
+for _, c := range inbox.Coverage {
+	if c.TopUp != "0" {
+		fmt.Printf("send %s %s to %s first\n", c.TopUp, c.Asset, c.Address)
+	}
+}
+
+// Send every valid request (or some: client.Payouts.Send(ctx, id1, id2)).
+batch, err := client.Payouts.Send(ctx)
+// batch.Status: pending_approval, awaiting_funds (batch.Waiting says what to send where) or processing
+
+// Take a request out of the list (or cancel it once sent, until it is on its way):
+_, err = client.Payouts.Cancel(ctx, item.ID)
+
+// Read it later, by its id or by your reference:
+item, err = client.Payouts.RetrieveByReference(ctx, "WD-7731") // Status "sent", TxID
+```
+
+To show a client the fee before they ask, quote it (up to 100 payments, nothing kept):
+
+```go
+q, err := client.Payouts.Quote(ctx, &payitgo.PayoutQuoteParams{
+	FeePaidBy: payitgo.FeePaidByRecipient, // the fees come out of the amount
+	Items:     []payitgo.PayoutParams{{Asset: "USDT_BEP20", Address: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", Amount: "120"}},
+})
+// q.Items[0].Fee "0.61183421", q.Items[0].SendAmount "119.38816579", q.Quote.TotalUSD "120"
+```
+
+**Batches.** A whole list at once: up to 1000 payments per call, more with `AddItems`, up
+to 10,000.
+
+```go
+batch, err := client.PayoutBatches.Create(ctx, &payitgo.PayoutBatchParams{
+	Reference: "payroll-2026-10", // a reference used already returns that batch: safe to retry
+	Name:      "October payroll",
+	Items: []payitgo.PayoutParams{
+		{Reference: "payroll-2026-10-ana", Asset: "USDT_TRC20", Address: "TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi", Amount: "1500"},
+		{Reference: "payroll-2026-10-ben", Asset: "USDT_BEP20", Address: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", Amount: "250"},
+	},
+})
+// batch.Status "quoted": Totals per coin, TotalUSD. The rows that failed a check:
+invalid, err := client.PayoutBatches.Items(ctx, batch.ID, &payitgo.PayoutListParams{Status: payitgo.PayoutItemInvalid})
+
+batch, err = client.PayoutBatches.Submit(ctx, batch.ID)
+if batch.Waiting != nil && batch.Waiting.Reason == payitgo.PayoutWaitFunds {
+	for _, s := range batch.Waiting.Shortfall {
+		fmt.Printf("top up %s %s at %s\n", s.Amount, s.Asset, s.Address) // it starts by itself once the money arrives
+	}
+}
+```
+
+A batch's prices hold for an hour: past that, `Submit` is a `409` (`its prices expired: get a
+new quote first`); call `client.PayoutBatches.Quote(ctx, id)`, then submit. Only a batch not
+submitted yet changes (`AddItems`, `Quote`); `Cancel` stops one before it is funded, or the
+payments not sent yet of one already processing.
+
+**The wallet.** `client.PayoutWallets.List(ctx)` returns one wallet per network: its
+`Address` to top up, and per coin its `Balance`, `Reserved`, `Spendable` and `Needed` (the
+top-up that batches waiting for funds need).
+
+**In test mode** a test key has a test payout wallet with balances on paper. Top it up with
+a call; batches waiting for it are funded, and their payments are "sent" within seconds
+with made-up `TxID`s and the same webhooks as live:
+
+```go
+wallets, err := client.PayoutWallets.SimulateTopUp(ctx, "USDT_TRC20", "1000") // test keys only (400 otherwise)
+```
+
+**Claim links.** Pay someone whose address you don't have: leave `Address` out and set
+`Claim: true` (giving `ClaimAssets` does too). With an `Email`, payitgo emails them the link;
+without one, you share it yourself. Claim links are opt-in only: an `Email` without an
+`Address` and without `Claim` is refused like any missing address. The recipient opens it, chooses the coin (`Asset`, or one of `ClaimAssets`, paid at the same
+dollar value) and their address, and the payment goes. Once its batch is funded it waits,
+`claimable`, until `Claim.ExpiresAt`; never claimed, it is `expired` and its money is free
+again. Payout requests, batch items and quotes all take them; a claim link is never
+converted.
+
+```go
+item, err := client.Payouts.Request(ctx, &payitgo.PayoutParams{
+	Reference:   "prize-cup-final-2",
+	Asset:       "USDT_TRC20",
+	Amount:      "100",
+	Claim:       true,                          // no Address: its recipient chooses
+	Email:       "player2@example.com",         // the link is emailed there
+	ClaimAssets: []string{"USDT_BEP20", "BTC"}, // other coins they may choose
+})
+// item.Claim.URL: the link (share it yourself when there is no email); item.Claim.ExpiresAt once funded
+// On payout_item.claimed: item.Asset and item.Address are what they chose, and when that is
+// another coin, item.Claim.FundedAsset and FundedAmount are what it was funded with.
+```
+
+**Converted payments.** Pay a coin your wallet does not hold: give a batch (or a quote)
+`Convert: payitgo.PayoutConvert` and `ConvertFrom`, a coin the wallet holds, and every
+payment in another coin is paid from `ConvertFrom`, converted on its way. Without them your
+payout settings decide, as they do for payout requests.
+
+```go
+batch, err := client.PayoutBatches.Create(ctx, &payitgo.PayoutBatchParams{
+	Reference: "payroll-2026-11", Convert: payitgo.PayoutConvert, ConvertFrom: "USDT_TRC20",
+	Items: []payitgo.PayoutParams{{Asset: "BTC", Address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", Amount: "0.01"}},
+})
+// Each converted payment: item.Convert.To "BTC", ToAmount "0.01" (what you asked), Estimate
+// (about what arrives), AmountOut once sent. item.Asset, Amount, Fee (ConversionFee included)
+// and Debit are in USDT_TRC20; item.Address is the recipient's Bitcoin address.
+```
+
+A batch with converted payments holds its prices for 15 minutes instead of an hour. A coin
+that cannot be paid from `ConvertFrom` is an `invalid` payment (`conversion_unavailable`).
+
+**Webhooks.** Each step raises an event, signed like the others (`event.PayoutBatch()`,
+`event.PayoutItem()`, `event.PayoutWithdrawal()`, `event.PayoutSchedule()` and
+`event.PayoutScheduleFunding()` decode them):
+
+```go
+switch event.Type {
+case payitgo.EventPayoutItemSent:
+	item, _ := event.PayoutItem()
+	markWithdrawalPaid(item.Reference, item.TxID)
+case payitgo.EventPayoutItemFailed:
+	item, _ := event.PayoutItem() // item.FailReason; its money stays in the wallet
+	reopenWithdrawal(item.Reference)
+case payitgo.EventPayoutBatchAwaitingFunds:
+	batch, _ := event.PayoutBatch() // batch.Waiting.Shortfall: what to send where
+	alertFinance(batch)
+}
+```
+
+Batch events (`EventPayoutBatch…`): `payout_batch.quoted`, `.pending_approval`, `.approved`,
+`.rejected`, `.awaiting_funds`, `.processing`, `.completed`, `.canceled`. Payment events
+(`EventPayoutItem…`): `payout_item.sent`, `.failed`, `.canceled`, and for claim links
+`.claimed` and `.claim_expired`. `payout_wallet.withdrawn` (`EventPayoutWalletWithdrawn`)
+when a withdrawal you made in the dashboard reaches your address. Schedules, set up in the
+dashboard, send `payout_schedule.run` (`EventPayoutScheduleRun`: the schedule, whose
+`LastBatchID` is the batch it made) and `payout_schedule.funding_needed`
+(`EventPayoutScheduleFundingNeeded`: the schedule and the `Shortfall` to send before its next
+run). Act on a payment's `Status`, not on the order events arrive in.
+
 ## API
 
 ```go
@@ -218,6 +391,23 @@ client.Payments.List(ctx, &payitgo.ListParams{Status: payitgo.StatusConfirmed, S
 client.Tokens.List(ctx, nil)                                            // every token
 client.Tokens.List(ctx, &payitgo.TokenListParams{AmountUSD: "49.90"})    // the coins a $49.90 payment offers, with AmountDueUSD
 client.Checkout.Get(ctx, checkoutToken)           // public payer view
+client.Payouts.Request(ctx, &payitgo.PayoutParams{...})        // Reference, Asset, Address, Amount, Name, …, Claim, ClaimAssets: *PayoutItem
+client.Payouts.Retrieve(ctx, itemID)                            // *PayoutItem
+client.Payouts.RetrieveByReference(ctx, reference)              // *PayoutItem
+client.Payouts.Inbox(ctx, &payitgo.PayoutListParams{Status: payitgo.PayoutItemReady}) // *PayoutInbox: Inbox, Coverage, Items, Total
+client.Payouts.Send(ctx, ids...)                                // none: every valid request; *PayoutBatch
+client.Payouts.Cancel(ctx, itemID)                              // *PayoutItem, canceled
+client.Payouts.Quote(ctx, &payitgo.PayoutQuoteParams{...})      // *PayoutQuote: Quote, Items (nothing kept)
+client.PayoutBatches.Create(ctx, &payitgo.PayoutBatchParams{...}) // Reference, Name, FeePaidBy, Convert, ConvertFrom, WebhookURL, Items: *PayoutBatch
+client.PayoutBatches.List(ctx, &payitgo.PayoutListParams{Status: payitgo.PayoutBatchCompleted, Limit: 50}) // *PayoutBatchList
+client.PayoutBatches.Retrieve(ctx, batchID)                     // *PayoutBatch
+client.PayoutBatches.Items(ctx, batchID, &payitgo.PayoutListParams{Status: "sent,failed"}) // *PayoutItemList
+client.PayoutBatches.AddItems(ctx, batchID, items)              // *PayoutBatch
+client.PayoutBatches.Quote(ctx, batchID)                        // priced again: *PayoutBatch
+client.PayoutBatches.Submit(ctx, batchID)                       // *PayoutBatch
+client.PayoutBatches.Cancel(ctx, batchID)                       // *PayoutBatch
+client.PayoutWallets.List(ctx)                                  // []PayoutWallet
+client.PayoutWallets.SimulateTopUp(ctx, "USDT_TRC20", "1000")   // test keys: []PayoutWallet
 client.Webhooks.Get(ctx)                          // *Webhook{Livemode, URL, Secret, CreatedAt, UpdatedAt}
 client.Webhooks.Set(ctx, url)                     // *Webhook
 client.Webhooks.Remove(ctx)                       // *Webhook, URL "" (the secret stays)
@@ -226,6 +416,8 @@ client.Webhooks.ConstructEvent(body, header)      // with WithWebhookSecret
 client.Webhooks.ConstructEvent(body, header, secret)
 payitgo.ConstructEvent(body, header, secret)        // 5-minute tolerance, no client needed
 payitgo.ConstructEventWithTolerance(body, header, secret, tolerance)
+event.Payment(); event.PayoutBatch(); event.PayoutItem(); event.PayoutWithdrawal() // decode event.Data
+event.PayoutSchedule(); event.PayoutScheduleFunding()                             // payout_schedule.* events
 ```
 
 Amounts are decimal strings (`"19.99"`), never floats.
