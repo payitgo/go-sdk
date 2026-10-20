@@ -113,7 +113,11 @@ type PayoutRecipient struct {
 // PayoutClaim is a claim link's state: a payment its recipient claims,
 // choosing the coin (its own, or one of Assets, paid at the same dollar
 // value) and the address. URL is the link: emailed to Email when there is
-// one, yours to share otherwise. Emailed counts the emails sent, Extended
+// one (the recipient confirms with a code sent there), yours to share
+// otherwise, with PIN, the 6 digits the recipient must enter: give it
+// another way than the link (a call, a text message), so the link alone
+// pays no one. PINLocked: 5 wrong PINs were entered; a new PIN from the
+// dashboard unlocks it. Emailed counts the emails sent, Extended
 // how often its end was pushed back. Once claimed in another coin,
 // FundedAsset and FundedAmount are what it was funded with (the payment's
 // Asset and Amount are then the chosen coin's).
@@ -128,6 +132,8 @@ type PayoutClaim struct {
 	FundedAsset  string     `json:"funded_asset,omitempty"`
 	FundedAmount string     `json:"funded_amount,omitempty"`
 	URL          string     `json:"url,omitempty"`
+	PIN          string     `json:"pin,omitempty"`
+	PINLocked    bool       `json:"pin_locked,omitempty"`
 }
 
 // PayoutConversion is a payment converted on its way: you asked to pay
@@ -434,7 +440,8 @@ type PayoutItemList struct {
 // links are opt-in: Claim, or giving ClaimAssets, makes one; an Email
 // without an Address and without Claim is refused like any missing
 // address. With an Email its link is emailed there; without one you share
-// it (PayoutItem.Claim.URL) yourself. A claim link is never converted.
+// it (PayoutItem.Claim.URL) yourself, and give its PIN (Claim.PIN) another
+// way: the recipient enters it. A claim link is never converted.
 type PayoutParams struct {
 	Reference   string   `json:"reference,omitempty"`
 	Asset       string   `json:"asset"` // "USDT_TRC20", "BTC", …
