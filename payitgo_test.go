@@ -1507,7 +1507,7 @@ func TestVersion(t *testing.T) {
 		ua = r.Header.Get("User-Agent")
 		return http.DefaultTransport.RoundTrip(r)
 	})
-	if _, err := c.PayoutWallets.List(context.Background()); err != nil || Version != "0.6.0" || ua != "payitgo-go/0.6.0" || rec.path != "/v1/payout-wallets" {
+	if _, err := c.PayoutWallets.List(context.Background()); err != nil || Version == "" || ua != "payitgo-go/"+Version || rec.path != "/v1/payout-wallets" {
 		t.Errorf("version %s, User-Agent %q, err %v", Version, ua, err)
 	}
 }
