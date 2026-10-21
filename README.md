@@ -25,7 +25,7 @@ func checkout(w http.ResponseWriter, r *http.Request) {
 		OrderID:    "ORD-1001",   // your order id: safe to retry
 		AmountUSD:  "19.99",      // decimal string
 		// Token: "USDT_TRC20",   // optional: without it the customer picks the coin
-		SuccessURL: "https://shop.example/thanks",
+		SuccessURL: "https://yourdomain.com/thanks",
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -135,15 +135,15 @@ accepting POST requests), or give a payment its own when you create it:
 
 ```go
 // Once per mode (safe to repeat):
-_, err := client.Webhooks.Set(ctx, "https://shop.example/payitgo/ipn")
+_, err := client.Webhooks.Set(ctx, "https://api.yourdomain.com/payitgo/ipn")
 
 // Or per payment: its events go there instead of the webhook's URL.
 _, err = client.Payments.Create(ctx, &payitgo.PaymentParams{
-	OrderID: "ORD-1", AmountUSD: "10", WebhookURL: "https://shop.example/orders/ipn",
+	OrderID: "ORD-1", AmountUSD: "10", WebhookURL: "https://api.yourdomain.com/orders/ipn",
 })
 
 // Or as the client's default for every payment it creates (a payment's own WebhookURL wins):
-shop, err := payitgo.NewClient(os.Getenv("PAYITGO_KEY"), payitgo.WithWebhookURL("https://shop.example/orders/ipn"))
+shop, err := payitgo.NewClient(os.Getenv("PAYITGO_KEY"), payitgo.WithWebhookURL("https://api.yourdomain.com/orders/ipn"))
 ```
 
 A storefront's key cannot set the account's URL (`403`): set `WebhookURL` on its payments
@@ -405,7 +405,7 @@ for _, event := range page.Events {
 
 ```go
 client, err := payitgo.NewClient(apiKey,
-	payitgo.WithBaseURL("https://api.example.com"), // or PAYITGO_BASE_URL
+	payitgo.WithBaseURL("https://api.payitgo.co"), // or PAYITGO_BASE_URL
 	payitgo.WithHTTPClient(&http.Client{Timeout: 30 * time.Second}),
 	payitgo.WithMaxRetries(2),                      // network errors, 429 and 5xx
 	payitgo.WithWebhookSecret(secret),              // for client.Webhooks.ConstructEvent

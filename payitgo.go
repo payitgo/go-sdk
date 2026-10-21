@@ -1,6 +1,6 @@
 // Package payitgo is the Go client for the payitgo crypto payment gateway.
 //
-//	client, err := payitgo.NewClient(os.Getenv("PAYITGO_KEY"), payitgo.WithBaseURL("https://api.example.com"))
+//	client, err := payitgo.NewClient(os.Getenv("PAYITGO_KEY"), payitgo.WithBaseURL("https://api.payitgo.co"))
 //	payment, err := client.Payments.Create(ctx, &payitgo.PaymentParams{
 //		OrderID: "ORD-1001", AmountUSD: "10", Token: "USDT_TRC20",
 //	})
@@ -271,7 +271,7 @@ type Client struct {
 // Option configures a Client.
 type Option func(*Client)
 
-// WithBaseURL sets the gateway's address, e.g. "https://api.example.com".
+// WithBaseURL sets the gateway's address, e.g. "https://api.payitgo.co".
 // The default is the PAYITGO_BASE_URL environment variable.
 func WithBaseURL(u string) Option { return func(c *Client) { c.baseURL = u } }
 
