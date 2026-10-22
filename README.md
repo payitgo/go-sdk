@@ -243,7 +243,7 @@ if err != nil {
 if item.Status == payitgo.PayoutItemInvalid {
 	log.Println(item.Errors[0].Message) // kept, never sent: "this address is for Tron, not BNB Smart Chain"
 }
-// item.Fee: its platform and network fees; item.Debit: what it takes from the wallet
+// item.Fee: its whole fee; item.Debit: what it takes from the wallet
 
 // The open list: its requests, and what sending them needs of each coin.
 inbox, err := client.Payouts.Inbox(ctx, nil)
@@ -359,7 +359,7 @@ batch, err := client.PayoutBatches.Create(ctx, &payitgo.PayoutBatchParams{
 	Items: []payitgo.PayoutParams{{Asset: "BTC", Address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", Amount: "0.01"}},
 })
 // Each converted payment: item.Convert.To "BTC", ToAmount "0.01" (what you asked), Estimate
-// (about what arrives), AmountOut once sent. item.Asset, Amount, Fee (ConversionFee included)
+// (about what arrives), AmountOut once sent. item.Asset, Amount, Fee (converting included)
 // and Debit are in USDT_TRC20; item.Address is the recipient's Bitcoin address.
 ```
 

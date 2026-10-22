@@ -196,12 +196,11 @@ type PayoutItem struct {
 	Address           string          `json:"address"`
 	Tag               *uint32         `json:"tag,omitempty"`
 	// Amount is what you asked to pay; SendAmount what reaches the
-	// recipient; Fee is PlatformFee and NetworkFee together; Debit what it
-	// takes from the wallet. AmountUSD is Amount at USDRate.
+	// recipient; Fee is the whole fee (a converted payment's converting
+	// included); Debit what it takes from the wallet. AmountUSD is Amount
+	// at USDRate.
 	Amount       string        `json:"amount"`
 	SendAmount   string        `json:"send_amount"`
-	PlatformFee  string        `json:"platform_fee"`
-	NetworkFee   string        `json:"network_fee"`
 	Fee          string        `json:"fee"`
 	Debit        string        `json:"debit"`
 	USDRate      string        `json:"usd_rate"`
@@ -222,10 +221,8 @@ type PayoutItem struct {
 	Members    map[string]string `json:"members,omitempty"`
 	WebhookURL string            `json:"webhook_url,omitempty"` // where its events go instead of its batch's WebhookURL or the webhook's URL
 	Claim      *PayoutClaim      `json:"claim,omitempty"`       // a claim link
-	// Convert is set on a payment converted on its way; ConversionFee (in
-	// Asset, part of Fee) is what converting costs.
-	Convert       *PayoutConversion `json:"convert,omitempty"`
-	ConversionFee string            `json:"conversion_fee,omitempty"`
+	// Convert is set on a payment converted on its way.
+	Convert *PayoutConversion `json:"convert,omitempty"`
 	// FeeCredit is the fee given back for a payment never sent, taken off
 	// your next batch's fees in its coin.
 	FeeCredit string     `json:"fee_credit,omitempty"`
@@ -299,20 +296,18 @@ type PayoutShortfall struct {
 // they send, what they pay, and what the wallet gives (Debit, and DebitUSD
 // in dollars); SavedUSD is what sending them together saves in network fees.
 type PayoutAssetTotal struct {
-	Asset       string `json:"asset"`
-	Ticker      string `json:"ticker"`
-	IconURL     string `json:"icon_url"`
-	Chain       string `json:"chain"`
-	Network     string `json:"network"`
-	Items       int    `json:"items"`
-	Amount      string `json:"amount"`
-	SendAmount  string `json:"send_amount"`
-	PlatformFee string `json:"platform_fee"`
-	NetworkFee  string `json:"network_fee"`
-	Fee         string `json:"fee"`
-	Debit       string `json:"debit"`
-	DebitUSD    string `json:"debit_usd"`
-	SavedUSD    string `json:"saved_usd"`
+	Asset      string `json:"asset"`
+	Ticker     string `json:"ticker"`
+	IconURL    string `json:"icon_url"`
+	Chain      string `json:"chain"`
+	Network    string `json:"network"`
+	Items      int    `json:"items"`
+	Amount     string `json:"amount"`
+	SendAmount string `json:"send_amount"`
+	Fee        string `json:"fee"`
+	Debit      string `json:"debit"`
+	DebitUSD   string `json:"debit_usd"`
+	SavedUSD   string `json:"saved_usd"`
 }
 
 // PayoutCounts are a batch's payments by status.

@@ -291,7 +291,7 @@ func TestPaymentsCreateWebhookURL(t *testing.T) {
 // testChosen is a payment whose coin the customer chose on the merchant's own page.
 const testChosen = `{"id":"pay_1","merchant_id":"mch_1","order_id":"ORD-7","status":"pending","livemode":false,"token":"XRP","chain":"xrp",` +
 	`"deposit_address":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","destination_tag":1042,"crypto_amount":"20","received_amount":"0",` +
-	`"usd_amount":"10","amount_due_usd":"10","fees_paid_by_customer":false,"network_fee":"0.000012","network_fee_usd":"0.01",` +
+	`"usd_amount":"10","amount_due_usd":"10","fees_paid_by_customer":false,` +
 	`"settlement":"custodial","received_usd":"0","rate_locked":"0.5","deposits":[],"expires_at":"2026-10-10T12:15:00Z",` +
 	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Final in seconds. Include the destination tag: it is required.",` +
 	`"qr_payload":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","checkout_token":"ct_abc",` +
@@ -356,7 +356,7 @@ func TestPaymentsSelectTokenChosen(t *testing.T) {
 const testSimulated = `{"id":"pay_2","merchant_id":"mch_1","order_id":"ORD-8","status":"detecting","livemode":false,` +
 	`"simulation":{"outcome":"confirmed","state":"running"},"token":"USDT_TRC20","chain":"tron",` +
 	`"deposit_address":"TPk2bpQqWRpXiaUHS9SXnZCDgvwrsuJ71o","crypto_amount":"20","received_amount":"20",` +
-	`"usd_amount":"20","amount_due_usd":"20","fees_paid_by_customer":false,"network_fee":"1","network_fee_usd":"0.3",` +
+	`"usd_amount":"20","amount_due_usd":"20","fees_paid_by_customer":false,` +
 	`"settlement":"custodial","received_usd":"20","rate_locked":"1",` +
 	`"deposits":[{"tx_id":"8de0120d502929788a71a7b7cf60e5ef3c095cdbb05cd8a7ddabc0bc9ffa9582",` +
 	`"token":"USDT_TRC20","chain":"tron","amount":"20","usd_value":"20","counted":true,"status":"pending",` +
@@ -429,8 +429,8 @@ func TestPaymentsCreateSimulate(t *testing.T) {
 // into usd_amount at price_rate.
 const testPriced = `{"id":"pay_3","merchant_id":"mch_1","order_id":"ORD-10","status":"pending","livemode":false,"token":"","chain":"",` +
 	`"deposit_address":"","crypto_amount":"0","received_amount":"0","usd_amount":"49.23","price_amount":"45.5",` +
-	`"price_currency":"EUR","price_rate":"1.082","amount_due_usd":"49.23","fees_paid_by_customer":false,"network_fee":"0",` +
-	`"network_fee_usd":"0","settlement":"custodial","received_usd":"0","rate_locked":"0","deposits":[],` +
+	`"price_currency":"EUR","price_rate":"1.082","amount_due_usd":"49.23","fees_paid_by_customer":false,` +
+	`"settlement":"custodial","received_usd":"0","rate_locked":"0","deposits":[],` +
 	`"expires_at":"2026-10-10T13:00:00Z","created_at":"2026-10-10T12:00:00Z","network_fee_note":"","qr_payload":""}`
 
 func TestPaymentsCreatePrice(t *testing.T) {
@@ -582,8 +582,8 @@ func TestDepositFields(t *testing.T) {
 const testPayoutRequest = `{"id":"4e6a8c0b2d4f6a1c3e5b7d9a","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":false,` +
 	`"batch_id":"7c3e5a9b1d2f4e6a8c0b2d4f","reference":"WD-7731","row":3,"recipient":{"name":"Ana Silva"},` +
 	`"asset":"USDT_TRC20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron",` +
-	`"address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi","amount":"120","send_amount":"120","platform_fee":"0.6",` +
-	`"network_fee":"5.748213","fee":"6.348213","debit":"126.348213","usd_rate":"1","amount_usd":"120","status":"ready",` +
+	`"address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi","amount":"120","send_amount":"120",` +
+	`"fee":"6.348213","debit":"126.348213","usd_rate":"1","amount_usd":"120","status":"ready",` +
 	`"errors":[],"warnings":[{"code":"new_recipient","field":"address","message":"you never paid this address","hint":"its payment waits 24 hours after funding"}],` +
 	`"created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T09:15:02.4Z"}`
 
@@ -592,7 +592,7 @@ const testPayoutSent = `{"id":"8b2d4f6a1c3e5a7b9d0f2c4e","merchant_id":"3f8a1c27
 	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","reference":"payroll-2026-10-ana","row":1,` +
 	`"recipient":{"name":"Ana Silva","email":"ana@example.com","note":"October salary"},"asset":"USDT_TRC20","ticker":"USDT",` +
 	`"icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron","address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi",` +
-	`"amount":"120","send_amount":"120","platform_fee":"0.6","network_fee":"5.748213","fee":"6.348213","debit":"126.348213",` +
+	`"amount":"120","send_amount":"120","fee":"6.348213","debit":"126.348213",` +
 	`"usd_rate":"1","amount_usd":"120","status":"sent","errors":[],"warnings":[],"cooling_until":"2026-10-20T09:20:00Z",` +
 	`"tx_id":"3c9f1a7e5b2d8c4f6a0e9b3d7c1f5a2e8b4d0c6f9a3e7b1d5c8f2a6e0b4d9c3f",` +
 	`"explorer_url":"https://tronscan.org/#/transaction/3c9f1a7e5b2d8c4f6a0e9b3d7c1f5a2e8b4d0c6f9a3e7b1d5c8f2a6e0b4d9c3f",` +
@@ -603,8 +603,8 @@ const testPayoutSent = `{"id":"8b2d4f6a1c3e5a7b9d0f2c4e","merchant_id":"3f8a1c27
 const testPayoutCanceled = `{"id":"9c1e3a5b7d9f2b4d6f8a0c2e","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
 	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","released_reference":"payroll-2026-10-ben","row":2,"recipient":{},` +
 	`"asset":"USDT_BEP20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_BEP20.svg","chain":"bsc",` +
-	`"address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed","amount":"250","send_amount":"250","platform_fee":"1.25",` +
-	`"network_fee":"0.01183421","fee":"1.26183421","debit":"251.26183421","usd_rate":"1","amount_usd":"250",` +
+	`"address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed","amount":"250","send_amount":"250",` +
+	`"fee":"1.26183421","debit":"251.26183421","usd_rate":"1","amount_usd":"250",` +
 	`"status":"canceled","errors":[],"warnings":[],"fee_credit":"1.26183421",` +
 	`"created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T09:20:00Z"}`
 
@@ -613,8 +613,8 @@ const testPayoutCanceled = `{"id":"9c1e3a5b7d9f2b4d6f8a0c2e","merchant_id":"3f8a
 const testPayoutRemoved = `{"id":"4e6a8c0b2d4f6a1c3e5b7d9a","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":false,` +
 	`"released_reference":"WD-7731","row":3,"recipient":{"name":"Ana Silva"},` +
 	`"asset":"USDT_TRC20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron",` +
-	`"address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi","amount":"120","send_amount":"120","platform_fee":"0.6",` +
-	`"network_fee":"5.748213","fee":"6.348213","debit":"126.348213","usd_rate":"1","amount_usd":"120","status":"canceled",` +
+	`"address":"TR7mNkucnhLZoJQLLJ6DR88jpLQufWxUJi","amount":"120","send_amount":"120",` +
+	`"fee":"6.348213","debit":"126.348213","usd_rate":"1","amount_usd":"120","status":"canceled",` +
 	`"errors":[],"warnings":[],"cancel_reason":"removed","canceled_by":"5e1a9c3d7b2f40e8a6c4d2b1","canceled_at":"2026-10-20T09:40:00Z",` +
 	`"webhook_url":"https://acme.example/payitgo/withdrawals","created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T09:40:00Z"}`
 
@@ -623,8 +623,8 @@ const testPayoutRemoved = `{"id":"4e6a8c0b2d4f6a1c3e5b7d9a","merchant_id":"3f8a1
 const testPayoutRejected = `{"id":"9c1e3a5b7d9f2b4d6f8a0c2e","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
 	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","released_reference":"payroll-2026-10-ben","row":2,"recipient":{},` +
 	`"asset":"USDT_BEP20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_BEP20.svg","chain":"bsc",` +
-	`"address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed","amount":"250","send_amount":"250","platform_fee":"1.25",` +
-	`"network_fee":"0.01183421","fee":"1.26183421","debit":"251.26183421","usd_rate":"1","amount_usd":"250",` +
+	`"address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed","amount":"250","send_amount":"250",` +
+	`"fee":"1.26183421","debit":"251.26183421","usd_rate":"1","amount_usd":"250",` +
 	`"status":"canceled","errors":[],"warnings":[],"cancel_reason":"rejected","cancel_note":"paid by bank transfer instead",` +
 	`"canceled_by":"9b2e4c71d8a05f3e6c1a7b24","canceled_at":"2026-10-20T15:02:44.3Z","members":{"9b2e4c71d8a05f3e6c1a7b24":"finance@acme.example"},` +
 	`"created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T15:02:44.3Z"}`
@@ -638,8 +638,8 @@ const testPayoutBatch = `{"id":"6a1f3c8e2d9b4a7051c3e8f2","merchant_id":"3f8a1c2
 	`"since":"2026-10-20T09:16:40.12Z","shortfall":[{"asset":"USDT_TRC20","network":"Tron (TRC-20)",` +
 	`"amount":"126.348213","address":"TMkq7dZ3vN8xR2pB6cH9sJ4fL1wY5tGaQe"}]},` +
 	`"totals":[{"asset":"USDT_TRC20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg",` +
-	`"chain":"tron","network":"Tron (TRC-20)","items":1,"amount":"120","send_amount":"120","platform_fee":"0.6",` +
-	`"network_fee":"5.748213","fee":"6.348213","debit":"126.348213","debit_usd":"126.35","saved_usd":"0"}],` +
+	`"chain":"tron","network":"Tron (TRC-20)","items":1,"amount":"120","send_amount":"120",` +
+	`"fee":"6.348213","debit":"126.348213","debit_usd":"126.35","saved_usd":"0"}],` +
 	`"counts":{"total":2,"invalid":1,"ready":1,"cooling":0,"queued":0,"sending":0,"sent":0,"failed":0,"canceled":0,"claimable":0,"expired":0},` +
 	`"total_usd":"126.35","quote_expires_at":"2026-10-20T10:15:02.41Z","approvals_needed":1,` +
 	`"approvals":[{"user_id":"9b2e4c71d8a05f3e6c1a7b24","at":"2026-10-20T09:16:30Z"}],` +
@@ -651,7 +651,7 @@ const testPayoutInbox = `{"inbox":{"id":"7c3e5a9b1d2f4e6a8c0b2d4f","merchant_id"
 	`"name":"Payout requests","source":"requests","inbox":true,"open":true,"created_by":"requests","by_api_key":false,` +
 	`"fee_paid_by":"merchant","convert":"same_network","status":"quoted","totals":[{"asset":"USDT_TRC20","ticker":"USDT",` +
 	`"icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron","network":"Tron (TRC-20)","items":1,` +
-	`"amount":"120","send_amount":"120","platform_fee":"0.6","network_fee":"5.748213","fee":"6.348213",` +
+	`"amount":"120","send_amount":"120","fee":"6.348213",` +
 	`"debit":"126.348213","debit_usd":"126.35","saved_usd":"0"}],` +
 	`"counts":{"total":3,"invalid":2,"ready":1,"cooling":0,"queued":0,"sending":0,"sent":0,"failed":0,"canceled":0,"claimable":0,"expired":0},` +
 	`"total_usd":"126.35","approvals_needed":0,"approvals":[],"created_at":"2026-10-19T08:00:00Z",` +
@@ -663,12 +663,12 @@ const testPayoutInbox = `{"inbox":{"id":"7c3e5a9b1d2f4e6a8c0b2d4f","merchant_id"
 // kept, so no ids or times.
 const testPayoutQuote = `{"quote":{"livemode":true,"fee_paid_by":"recipient","convert":"same_network","convert_from":"","totals":[{"asset":"USDT_BEP20","ticker":"USDT",` +
 	`"icon_url":"https://api.payitgo.co/coins/USDT_BEP20.svg","chain":"bsc","network":"BNB Smart Chain (BEP-20)","items":1,` +
-	`"amount":"120","send_amount":"119.38816579","platform_fee":"0.6","network_fee":"0.01183421","fee":"0.61183421",` +
+	`"amount":"120","send_amount":"119.38816579","fee":"0.61183421",` +
 	`"debit":"120","debit_usd":"120","saved_usd":"0"}],"total_usd":"120",` +
 	`"counts":{"total":1,"invalid":0,"ready":1,"cooling":0,"queued":0,"sending":0,"sent":0,"failed":0,"canceled":0,"claimable":0,"expired":0}},` +
 	`"items":[{"livemode":true,"row":1,"recipient":{},"asset":"USDT_BEP20","ticker":"USDT",` +
 	`"icon_url":"https://api.payitgo.co/coins/USDT_BEP20.svg","chain":"bsc","address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",` +
-	`"amount":"120","send_amount":"119.38816579","platform_fee":"0.6","network_fee":"0.01183421","fee":"0.61183421",` +
+	`"amount":"120","send_amount":"119.38816579","fee":"0.61183421",` +
 	`"debit":"120","usd_rate":"1","amount_usd":"120","status":"ready","errors":[],"warnings":[]}]}`
 
 // testPayoutWallets is the live payout wallet: one address per network.
@@ -705,7 +705,7 @@ const testPayoutClaim = `{"id":"2a4c6e8b0d1f3a5c7e9b1d3f","merchant_id":"3f8a1c2
 	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","reference":"prize-cup-final-2","row":4,` +
 	`"recipient":{"name":"Player Two","email":"player2@example.com"},"asset":"USDT_TRC20","ticker":"USDT",` +
 	`"icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron","address":"","amount":"100","send_amount":"100",` +
-	`"platform_fee":"0.5","network_fee":"5.748213","fee":"6.248213","debit":"106.248213","usd_rate":"1","amount_usd":"100",` +
+	`"fee":"6.248213","debit":"106.248213","usd_rate":"1","amount_usd":"100",` +
 	`"status":"claimable","errors":[],"warnings":[],"claim":{"email":"player2@example.com","assets":["USDT_BEP20","BTC"],` +
 	`"expires_at":"2026-11-19T09:16:41Z","emailed":1,"last_email_at":"2026-10-20T09:16:41Z","extended":0,` +
 	`"url":"https://payitgo.co/pay/claim/q3Vh8sK2mN7xR4tB9cJ6fL1wY5zGaQeU"},` +
@@ -717,7 +717,7 @@ const testPayoutClaimed = `{"id":"2a4c6e8b0d1f3a5c7e9b1d3f","merchant_id":"3f8a1
 	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","reference":"prize-cup-final-2","row":4,` +
 	`"recipient":{"name":"Player Two","email":"player2@example.com"},"asset":"USDT_BEP20","ticker":"USDT",` +
 	`"icon_url":"https://api.payitgo.co/coins/USDT_BEP20.svg","chain":"bsc","address":"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",` +
-	`"amount":"100","send_amount":"100","platform_fee":"0.5","network_fee":"0.01183421","fee":"0.51183421","debit":"100.51183421",` +
+	`"amount":"100","send_amount":"100","fee":"0.51183421","debit":"100.51183421",` +
 	`"usd_rate":"1","amount_usd":"100","status":"queued","errors":[],"warnings":[],"claim":{"email":"player2@example.com",` +
 	`"assets":["USDT_BEP20","BTC"],"expires_at":"2026-11-19T09:16:41Z","claimed_at":"2026-10-21T18:02:10Z","emailed":1,` +
 	`"last_email_at":"2026-10-20T09:16:41Z","extended":0,"funded_asset":"USDT_TRC20","funded_amount":"100",` +
@@ -729,11 +729,11 @@ const testPayoutClaimed = `{"id":"2a4c6e8b0d1f3a5c7e9b1d3f","merchant_id":"3f8a1
 const testPayoutConverted = `{"id":"3b5d7f9a1c3e5b7d9f1a3c5e","merchant_id":"3f8a1c27b94e05d6a2c71e90","livemode":true,` +
 	`"batch_id":"6a1f3c8e2d9b4a7051c3e8f2","reference":"payroll-2026-10-dana","row":5,"recipient":{"name":"Dana Ito"},` +
 	`"asset":"USDT_TRC20","ticker":"USDT","icon_url":"https://api.payitgo.co/coins/USDT_TRC20.svg","chain":"tron",` +
-	`"address":"bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq","amount":"683.4","send_amount":"683.4","platform_fee":"3.42",` +
-	`"network_fee":"5.748213","fee":"13.268213","debit":"696.668213","usd_rate":"1","amount_usd":"683.4","status":"sent",` +
+	`"address":"bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq","amount":"683.4","send_amount":"683.4",` +
+	`"fee":"13.268213","debit":"696.668213","usd_rate":"1","amount_usd":"683.4","status":"sent",` +
 	`"errors":[],"warnings":[],"tx_id":"9a1c3e5b7d9f2a4c6e8b0d1f3a5c7e9b1d3f5a7c9e2b4d6f8a0c2e4b6d8f0a1c",` +
 	`"convert":{"to":"BTC","ticker":"BTC","network":"Bitcoin","to_amount":"0.01","estimate":"0.01002","amount_out":"0.010011"},` +
-	`"conversion_fee":"4.1","sent_at":"2026-10-20T10:02:44Z","created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T10:02:44Z"}`
+	`"sent_at":"2026-10-20T10:02:44Z","created_at":"2026-10-20T09:15:01.88Z","updated_at":"2026-10-20T10:02:44Z"}`
 
 // testPayoutSchedule is a monthly payroll schedule after a run, as its
 // webhooks tell it (no rows).
@@ -1322,7 +1322,7 @@ func TestPayoutConverted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if item.Asset != "USDT_TRC20" || item.Chain != "tron" || item.ConversionFee != "4.1" || item.Convert == nil || item.Convert.To != "BTC" ||
+	if item.Asset != "USDT_TRC20" || item.Chain != "tron" || item.Fee != "13.268213" || item.Convert == nil || item.Convert.To != "BTC" ||
 		item.Convert.Ticker != "BTC" || item.Convert.Network != "Bitcoin" || item.Convert.ToAmount != "0.01" || item.Convert.Estimate != "0.01002" ||
 		item.Convert.AmountOut != "0.010011" || item.Claim != nil {
 		t.Errorf("converted %+v %+v", item, item.Convert)
@@ -1331,7 +1331,7 @@ func TestPayoutConverted(t *testing.T) {
 
 	// A payment paid in its own coin has neither.
 	var plain PayoutItem
-	if err := json.Unmarshal([]byte(testPayoutSent), &plain); err != nil || plain.Convert != nil || plain.ConversionFee != "" || plain.Claim != nil {
+	if err := json.Unmarshal([]byte(testPayoutSent), &plain); err != nil || plain.Convert != nil || plain.Claim != nil {
 		t.Errorf("plain %+v %v", plain, err)
 	}
 }

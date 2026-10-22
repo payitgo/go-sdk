@@ -145,10 +145,8 @@ type Payment struct {
 	PriceRate          string            `json:"price_rate,omitempty"`     // dollars per unit of PriceCurrency that USDAmount was converted at
 	AmountDueUSD       string            `json:"amount_due_usd"`           // what the customer pays: the price, plus the fees when you pass them on
 	FeesPaidByCustomer bool              `json:"fees_paid_by_customer"`
-	NetworkFee         string            `json:"network_fee"`     // quoted for moving the payment, in its coin
-	NetworkFeeUSD      string            `json:"network_fee_usd"` // and in dollars
-	Settlement         string            `json:"settlement"`      // "custodial" (your balance) or "direct" (your payout address)
-	ReceivedUSD        string            `json:"received_usd"`    // dollar value of the deposits that count
+	Settlement         string            `json:"settlement"`   // "custodial" (your balance) or "direct" (your payout address)
+	ReceivedUSD        string            `json:"received_usd"` // dollar value of the deposits that count
 	RateLocked         string            `json:"rate_locked"`
 	TxID               string            `json:"tx_id,omitempty"`
 	Overpaid           bool              `json:"overpaid,omitempty"`
