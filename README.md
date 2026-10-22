@@ -14,10 +14,20 @@ go get github.com/payitgo/go-sdk
 ```go
 import payitgo "github.com/payitgo/go-sdk"
 
-client, err := payitgo.NewClient(os.Getenv("PAYITGO_KEY"),
-	payitgo.WithBaseURL(os.Getenv("PAYITGO_BASE_URL")),
-	payitgo.WithWebhookSecret(os.Getenv("PAYITGO_WEBHOOK_SECRET")), // the signing secret: see Webhooks (IPN) below
-)
+var client *payitgo.Client
+
+func main() {
+	var err error
+	client, err = payitgo.NewClient(os.Getenv("PAYITGO_KEY"),
+		payitgo.WithWebhookSecret(os.Getenv("PAYITGO_WEBHOOK_SECRET")), // the signing secret: see Webhooks (IPN) below
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	http.HandleFunc("/checkout", checkout)
+	http.HandleFunc("/payitgo/ipn", ipn)
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
 
 // 1. Create a payment and send the customer to the checkout page.
 func checkout(w http.ResponseWriter, r *http.Request) {
@@ -96,8 +106,9 @@ chosen, err := client.Payments.SelectToken(ctx, payment.ID, "USDT_TRC20") // or 
 // render chosen.DepositAddress, chosen.CryptoAmount, chosen.QRPayload, chosen.ExpiresAt
 ```
 
-The coin is chosen once: choosing again is a `409` (`Payments.Get` then returns the payment
-with its coin). A coin outside `TokenOptions`, or a payment that can no longer be paid, is
+The customer can change the coin (another of `TokenOptions`) while nothing has arrived, up
+to three times; the coin it has already changes nothing. Once the coin can no longer change,
+another one is a `409`. A coin outside `TokenOptions`, or a payment that can no longer be paid, is
 a `400`.
 
 ## Test mode
@@ -244,7 +255,8 @@ for _, c := range inbox.Coverage {
 
 // Send every valid request (or some: client.Payouts.Send(ctx, id1, id2)).
 batch, err := client.Payouts.Send(ctx)
-// batch.Status: pending_approval, awaiting_funds (batch.Waiting says what to send where) or processing
+// batch.Status: pending_approval, awaiting_funds (batch.Waiting says what to send where) or processing;
+// validating for more than 100 requests (submitted once priced)
 
 // Take a request out of the list (or cancel it once sent, until it is on its way).
 // Its record stays: Status "canceled", CancelReason "removed", ReleasedReference, no BatchID.
@@ -405,11 +417,10 @@ for _, event := range page.Events {
 
 ```go
 client, err := payitgo.NewClient(apiKey,
-	payitgo.WithBaseURL("https://api.payitgo.co"), // or PAYITGO_BASE_URL
 	payitgo.WithHTTPClient(&http.Client{Timeout: 30 * time.Second}),
-	payitgo.WithMaxRetries(2),                      // network errors, 429 and 5xx
-	payitgo.WithWebhookSecret(secret),              // for client.Webhooks.ConstructEvent
-	payitgo.WithWebhookURL("https://…"),            // default PaymentParams.WebhookURL
+	payitgo.WithMaxRetries(2),                                         // network errors, 429 and 5xx
+	payitgo.WithWebhookSecret(secret),                                 // for client.Webhooks.ConstructEvent
+	payitgo.WithWebhookURL("https://api.yourdomain.com/payitgo/ipn"), // default PaymentParams.WebhookURL
 )
 
 client.IsLive(ctx)                                // (false, nil) for a test key: asks payitgo once

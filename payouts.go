@@ -118,7 +118,7 @@ const (
 // people, Hint what to do.
 type PayoutIssue struct {
 	Code    string `json:"code"`            // an Issue… constant
-	Field   string `json:"field,omitempty"` // asset, amount, address, tag or reference
+	Field   string `json:"field,omitempty"` // asset, amount, address, tag, reference, email or claim_assets
 	Message string `json:"message"`
 	Hint    string `json:"hint,omitempty"`
 }
