@@ -484,6 +484,7 @@ type PayoutParams struct {
 	Claim       bool     `json:"claim,omitempty"`        // a claim link
 	ClaimAssets []string `json:"claim_assets,omitempty"` // the other coins its recipient may choose (a claim link)
 	WebhookURL  string   `json:"webhook_url,omitempty"`  // where its events go instead of its batch's or the webhook's URL
+	Simulate    string   `json:"simulate,omitempty"`     // test mode only: "failed" or "failed_after_broadcast" (sent by default)
 }
 
 // PayoutBatchParams makes a batch of 1 to 1000 payments (add more with

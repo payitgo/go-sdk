@@ -60,6 +60,7 @@ const (
 	OutcomeFailed        = "failed"
 	OutcomeWrongAsset    = "wrong_asset"
 	OutcomePaidLate      = "paid_late"
+	OutcomePaidTwice     = "paid_twice"
 )
 
 // Simulation states.

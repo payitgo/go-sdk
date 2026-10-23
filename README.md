@@ -130,7 +130,7 @@ payment, err = client.Payments.Simulate(ctx, "TEST-2", payitgo.OutcomePartiallyP
 ```
 
 Outcomes (`payitgo.Outcome…`): `confirmed`, `overpaid`, `partially_paid`, `underpaid`,
-`expired`, `failed`, `wrong_asset`, `paid_late`. Simulated deposits have `Simulated: true`;
+`expired`, `failed`, `wrong_asset`, `paid_late`, `paid_twice`. Simulated deposits have `Simulated: true`;
 their `TxID` names no transaction on any chain. A live key gets `400`; a payment whose
 simulation is still running, `409`.
 
