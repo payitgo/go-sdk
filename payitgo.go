@@ -33,7 +33,7 @@ import (
 )
 
 // Version is this library's version, sent in the User-Agent.
-const Version = "0.7.2"
+const Version = "0.7.3"
 
 // defaultBaseURL is used when neither WithBaseURL nor PAYITGO_BASE_URL is set.
 const defaultBaseURL = "https://api.payitgo.co"
