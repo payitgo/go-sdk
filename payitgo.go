@@ -90,6 +90,11 @@ type Deposit struct {
 	Status      string     `json:"status"`
 	SeenAt      time.Time  `json:"seen_at"`
 	ConfirmedAt *time.Time `json:"confirmed_at,omitempty"`
+	// Confirmations is how many blocks have confirmed it so far, out of
+	// ConfirmationsRequired on its network: show "12 of 20" while it is
+	// pending.
+	Confirmations         int64 `json:"confirmations"`
+	ConfirmationsRequired int64 `json:"confirmations_required"`
 	// From is the sender's address when the network reports it (for a
 	// Bitcoin-like coin, the first input's): where a refund would go. To is
 	// the address it was sent to: the payment's, or a previous coin's.
@@ -150,31 +155,38 @@ type Payment struct {
 	// AmountExtra the part of AmountDue paid only to reach the exchange's
 	// minimum, which you receive (empty when there is none); RateLocked the
 	// coin's price, locked when the coin was chosen.
-	Currency           string            `json:"currency"`
-	Amount             string            `json:"amount"`
-	AmountDue          string            `json:"amount_due"`
-	AmountReceived     string            `json:"amount_received"`
-	AmountExtra        string            `json:"amount_extra,omitempty"`
-	FeesPaidByCustomer bool              `json:"fees_paid_by_customer"`
-	Settlement         string            `json:"settlement"` // "custodial" (your balance) or "direct" (your payout address)
-	RateLocked         string            `json:"rate_locked"`
-	TxID               string            `json:"tx_id,omitempty"`
-	Overpaid           bool              `json:"overpaid,omitempty"`
-	PaidLate           bool              `json:"paid_late,omitempty"`
-	Deposits           []Deposit         `json:"deposits"`
-	ExpiresAt          time.Time         `json:"expires_at"`
-	CreatedAt          time.Time         `json:"created_at"`
-	ConfirmedAt        *time.Time        `json:"confirmed_at,omitempty"`
-	NetworkFeeNote     string            `json:"network_fee_note"`
-	QRPayload          string            `json:"qr_payload"`
-	CheckoutToken      string            `json:"checkout_token,omitempty"`
-	CheckoutURL        string            `json:"checkout_url,omitempty"`
-	Description        string            `json:"description,omitempty"`
-	Metadata           map[string]string `json:"metadata,omitempty"`
-	CustomerEmail      string            `json:"customer_email,omitempty"`
-	SuccessURL         string            `json:"success_url,omitempty"`
-	CancelURL          string            `json:"cancel_url,omitempty"`
-	WebhookURL         string            `json:"webhook_url,omitempty"` // where its events go instead of the webhook's URL
+	Currency           string    `json:"currency"`
+	Amount             string    `json:"amount"`
+	AmountDue          string    `json:"amount_due"`
+	AmountReceived     string    `json:"amount_received"`
+	AmountExtra        string    `json:"amount_extra,omitempty"`
+	FeesPaidByCustomer bool      `json:"fees_paid_by_customer"`
+	Settlement         string    `json:"settlement"` // "custodial" (your balance) or "direct" (your payout address)
+	RateLocked         string    `json:"rate_locked"`
+	TxID               string    `json:"tx_id,omitempty"`
+	Overpaid           bool      `json:"overpaid,omitempty"`
+	PaidLate           bool      `json:"paid_late,omitempty"`
+	Deposits           []Deposit `json:"deposits"`
+	// Confirmations is the latest deposit's, out of ConfirmationsRequired on
+	// the payment's network: while the status is detecting, the customer's
+	// payment is on the network and these say how far it is from final.
+	// DetectedAt is when the first deposit was seen.
+	Confirmations         int64             `json:"confirmations"`
+	ConfirmationsRequired int64             `json:"confirmations_required"`
+	DetectedAt            *time.Time        `json:"detected_at,omitempty"`
+	ExpiresAt             time.Time         `json:"expires_at"`
+	CreatedAt             time.Time         `json:"created_at"`
+	ConfirmedAt           *time.Time        `json:"confirmed_at,omitempty"`
+	NetworkFeeNote        string            `json:"network_fee_note"`
+	QRPayload             string            `json:"qr_payload"`
+	CheckoutToken         string            `json:"checkout_token,omitempty"`
+	CheckoutURL           string            `json:"checkout_url,omitempty"`
+	Description           string            `json:"description,omitempty"`
+	Metadata              map[string]string `json:"metadata,omitempty"`
+	CustomerEmail         string            `json:"customer_email,omitempty"`
+	SuccessURL            string            `json:"success_url,omitempty"`
+	CancelURL             string            `json:"cancel_url,omitempty"`
+	WebhookURL            string            `json:"webhook_url,omitempty"` // where its events go instead of the webhook's URL
 }
 
 // PaymentParams creates a payment. OrderID is required, and Amount, the

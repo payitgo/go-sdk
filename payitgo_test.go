@@ -292,7 +292,7 @@ func TestPaymentsCreateWebhookURL(t *testing.T) {
 const testChosen = `{"id":"pay_1","merchant_id":"mch_1","order_id":"ORD-7","status":"pending","livemode":false,"token":"XRP","chain":"xrp",` +
 	`"deposit_address":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","destination_tag":1042,"crypto_amount":"20","crypto_received":"0",` +
 	`"currency":"USD","amount":"10","amount_due":"10","fees_paid_by_customer":false,` +
-	`"settlement":"custodial","amount_received":"0","rate_locked":"0.5","deposits":[],"expires_at":"2026-10-10T12:15:00Z",` +
+	`"settlement":"custodial","amount_received":"0","rate_locked":"0.5","deposits":[],"confirmations":0,"confirmations_required":1,"expires_at":"2026-10-10T12:15:00Z",` +
 	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Final in seconds. Include the destination tag: it is required.",` +
 	`"qr_payload":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","checkout_token":"ct_abc",` +
 	`"checkout_url":"https://pay.example/ct_abc","description":"Order 7","metadata":{"cart":"42"}}`
@@ -360,7 +360,8 @@ const testSimulated = `{"id":"pay_2","merchant_id":"mch_1","order_id":"ORD-8","s
 	`"settlement":"custodial","amount_received":"20","rate_locked":"1",` +
 	`"deposits":[{"tx_id":"8de0120d502929788a71a7b7cf60e5ef3c095cdbb05cd8a7ddabc0bc9ffa9582",` +
 	`"token":"USDT_TRC20","chain":"tron","amount":"20","value":"20","counted":true,"status":"pending",` +
-	`"seen_at":"2026-10-10T12:00:05Z","simulated":true}],"expires_at":"2026-10-10T12:15:00Z",` +
+	`"seen_at":"2026-10-10T12:00:05Z","confirmations":12,"confirmations_required":20,"simulated":true}],` +
+	`"confirmations":12,"confirmations_required":20,"detected_at":"2026-10-10T12:00:05Z","expires_at":"2026-10-10T12:15:00Z",` +
 	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Final in about a minute.",` +
 	`"qr_payload":"TPk2bpQqWRpXiaUHS9SXnZCDgvwrsuJ71o"}`
 
@@ -430,7 +431,7 @@ func TestPaymentsCreateSimulate(t *testing.T) {
 const testPriced = `{"id":"pay_3","merchant_id":"mch_1","order_id":"ORD-10","status":"pending","livemode":false,"token":"","chain":"",` +
 	`"deposit_address":"","crypto_amount":"0","crypto_received":"0","currency":"EUR","amount":"45.5",` +
 	`"amount_due":"45.5","fees_paid_by_customer":false,` +
-	`"settlement":"custodial","amount_received":"0","rate_locked":"0","deposits":[],` +
+	`"settlement":"custodial","amount_received":"0","rate_locked":"0","deposits":[],"confirmations":0,"confirmations_required":0,` +
 	`"expires_at":"2026-10-10T13:00:00Z","created_at":"2026-10-10T12:00:00Z","network_fee_note":"","qr_payload":""}`
 
 func TestPaymentsCreatePrice(t *testing.T) {
@@ -551,7 +552,7 @@ func TestPaymentsList(t *testing.T) {
 func TestDepositFields(t *testing.T) {
 	// Every field the gateway sends for a deposit survives decoding.
 	const deposit = `{"tx_id":"c19240","token":"USDT_TRC20","chain":"tron","amount":"49.9","value":"49.9","counted":true,` +
-		`"late":true,"status":"failed","seen_at":"2026-10-10T09:03:02.418Z","confirmed_at":"2026-10-10T09:04:03.77Z",` +
+		`"late":true,"status":"failed","seen_at":"2026-10-10T09:03:02.418Z","confirmed_at":"2026-10-10T09:04:03.77Z","confirmations":3,"confirmations_required":20,` +
 		`"from":"TL8wHk","block":79412538,"made_at":"2026-10-10T09:02:57Z","failed_at":"2026-10-10T15:03:02Z","fail_reason":"confirmation timeout"}`
 	var d Deposit
 	if err := json.Unmarshal([]byte(deposit), &d); err != nil {
