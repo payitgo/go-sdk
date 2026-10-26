@@ -22,8 +22,8 @@ const testKey = "8334dfeae25b9b200b75995e6e55cf8c3602120c1920bfef7a4ff8900b62088
 // Signed by the gateway's own signer.
 const (
 	testSecret  = "05bd6b428158318cc38756fa34aa60795af0fc5d9a316dcc9b060c8ca1863fc3"
-	testHeader  = "t=1760000000,v1=75eb20fb34bccab4b9121285930b076e5e60ccad0a2542bd76eb56d89744faed"
-	testBody    = `{"id":"b8e1f80bd70ae0784c7855a4","type":"payment.confirmed","livemode":false,"created_at":"2026-10-09T12:00:00Z","data":{"id":"040ffd5925d40e11c67b7238","order_id":"ORD-1","status":"confirmed","usd_amount":"10"}}`
+	testHeader  = "t=1760000000,v1=b61376838fdc09d9241eb407eda645be1e67a88fed148fc057c56a1b784e01e5"
+	testBody    = `{"id":"b8e1f80bd70ae0784c7855a4","type":"payment.confirmed","livemode":false,"created_at":"2026-10-09T12:00:00Z","data":{"id":"040ffd5925d40e11c67b7238","order_id":"ORD-1","status":"confirmed","currency":"USD","amount":"10"}}`
 	otherSecret = "bd4106123e659e259c401119d0c7ef0a221df306a5a414b6fb6a579499962d26"
 )
 
@@ -39,7 +39,7 @@ func TestConstructEventAcceptsGatewaySignature(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, err := e.Payment()
-	if err != nil || e.Type != "payment.confirmed" || e.Livemode || p.OrderID != "ORD-1" || p.USDAmount != "10" {
+	if err != nil || e.Type != "payment.confirmed" || e.Livemode || p.OrderID != "ORD-1" || p.Amount != "10" {
 		t.Fatalf("event %+v payment %+v err %v", e, p, err)
 	}
 }
@@ -271,7 +271,7 @@ func TestPaymentsCreateWebhookURL(t *testing.T) {
 			opts = append(opts, WithWebhookURL(tc.clientURL))
 		}
 		c, rec := fakeGateway(t, http.StatusCreated, reply, opts...)
-		params := &PaymentParams{OrderID: "ORD-1", AmountUSD: "10", WebhookURL: tc.paramURL}
+		params := &PaymentParams{OrderID: "ORD-1", Amount: "10", WebhookURL: tc.paramURL}
 		p, err := c.Payments.Create(context.Background(), params)
 		if err != nil {
 			t.Fatal(err)
@@ -290,21 +290,21 @@ func TestPaymentsCreateWebhookURL(t *testing.T) {
 
 // testChosen is a payment whose coin the customer chose on the merchant's own page.
 const testChosen = `{"id":"pay_1","merchant_id":"mch_1","order_id":"ORD-7","status":"pending","livemode":false,"token":"XRP","chain":"xrp",` +
-	`"deposit_address":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","destination_tag":1042,"crypto_amount":"20","received_amount":"0",` +
-	`"usd_amount":"10","amount_due_usd":"10","fees_paid_by_customer":false,` +
-	`"settlement":"custodial","received_usd":"0","rate_locked":"0.5","deposits":[],"expires_at":"2026-10-10T12:15:00Z",` +
+	`"deposit_address":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","destination_tag":1042,"crypto_amount":"20","crypto_received":"0",` +
+	`"currency":"USD","amount":"10","amount_due":"10","fees_paid_by_customer":false,` +
+	`"settlement":"custodial","amount_received":"0","rate_locked":"0.5","deposits":[],"expires_at":"2026-10-10T12:15:00Z",` +
 	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Final in seconds. Include the destination tag: it is required.",` +
 	`"qr_payload":"rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe","checkout_token":"ct_abc",` +
 	`"checkout_url":"https://pay.example/ct_abc","description":"Order 7","metadata":{"cart":"42"}}`
 
 func TestTokensList(t *testing.T) {
-	c, rec := fakeGateway(t, http.StatusOK, `{"tokens":[{"token":"USDT_BEP20","chain":"bsc","min_usd":"1","network_fee_usd":"0.01","amount_due_usd":"40.43","fee_note":""}]}`)
+	c, rec := fakeGateway(t, http.StatusOK, `{"tokens":[{"token":"USDT_BEP20","chain":"bsc","minimum":"1","network_fee":"0.01","amount_due":"40.43","fee_note":""}]}`)
 	list, err := c.Tokens.List(context.Background(), nil)
 	if err != nil || len(list) != 1 || list[0].Token != "USDT_BEP20" || rec.method != http.MethodGet || rec.path != "/v1/tokens" || rec.query != "" {
 		t.Fatalf("every token: %+v %v (%+v)", list, err, rec)
 	}
-	list, err = c.Tokens.List(context.Background(), &TokenListParams{AmountUSD: "49.90"})
-	if err != nil || rec.query != "amount_usd=49.90" || list[0].AmountDueUSD != "40.43" {
+	list, err = c.Tokens.List(context.Background(), &TokenListParams{Amount: "49.90"})
+	if err != nil || rec.query != "amount=49.90" || list[0].AmountDue != "40.43" {
 		t.Fatalf("for an amount: %+v %v (query %q)", list, err, rec.query)
 	}
 }
@@ -355,11 +355,11 @@ func TestPaymentsSelectTokenChosen(t *testing.T) {
 // testSimulated is a test payment whose simulated outcome has paid it.
 const testSimulated = `{"id":"pay_2","merchant_id":"mch_1","order_id":"ORD-8","status":"detecting","livemode":false,` +
 	`"simulation":{"outcome":"confirmed","state":"running"},"token":"USDT_TRC20","chain":"tron",` +
-	`"deposit_address":"TPk2bpQqWRpXiaUHS9SXnZCDgvwrsuJ71o","crypto_amount":"20","received_amount":"20",` +
-	`"usd_amount":"20","amount_due_usd":"20","fees_paid_by_customer":false,` +
-	`"settlement":"custodial","received_usd":"20","rate_locked":"1",` +
+	`"deposit_address":"TPk2bpQqWRpXiaUHS9SXnZCDgvwrsuJ71o","crypto_amount":"20","crypto_received":"20",` +
+	`"currency":"USD","amount":"20","amount_due":"20","fees_paid_by_customer":false,` +
+	`"settlement":"custodial","amount_received":"20","rate_locked":"1",` +
 	`"deposits":[{"tx_id":"8de0120d502929788a71a7b7cf60e5ef3c095cdbb05cd8a7ddabc0bc9ffa9582",` +
-	`"token":"USDT_TRC20","chain":"tron","amount":"20","usd_value":"20","counted":true,"status":"pending",` +
+	`"token":"USDT_TRC20","chain":"tron","amount":"20","value":"20","counted":true,"status":"pending",` +
 	`"seen_at":"2026-10-10T12:00:05Z","simulated":true}],"expires_at":"2026-10-10T12:15:00Z",` +
 	`"created_at":"2026-10-10T12:00:00Z","network_fee_note":"Final in about a minute.",` +
 	`"qr_payload":"TPk2bpQqWRpXiaUHS9SXnZCDgvwrsuJ71o"}`
@@ -406,7 +406,7 @@ func TestPaymentsSimulateRunning(t *testing.T) {
 
 func TestPaymentsCreateSimulate(t *testing.T) {
 	c, rec := fakeGateway(t, http.StatusCreated, testSimulated)
-	p, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-8", AmountUSD: "20", Token: "USDT_TRC20", Simulate: OutcomeConfirmed})
+	p, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-8", Amount: "20", Token: "USDT_TRC20", Simulate: OutcomeConfirmed})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +417,7 @@ func TestPaymentsCreateSimulate(t *testing.T) {
 		t.Errorf("payment %+v", p)
 	}
 	// Without Simulate, the field is left out.
-	if _, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-9", AmountUSD: "20"}); err != nil {
+	if _, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-9", Amount: "20"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := rec.body["simulate"]; ok {
@@ -425,25 +425,25 @@ func TestPaymentsCreateSimulate(t *testing.T) {
 	}
 }
 
-// testPriced is a payment priced in euros: the gateway converted the price
-// into usd_amount at price_rate.
+// testPriced is a payment priced in euros: every figure in EUR, converted by
+// the gateway at the rate of the moment.
 const testPriced = `{"id":"pay_3","merchant_id":"mch_1","order_id":"ORD-10","status":"pending","livemode":false,"token":"","chain":"",` +
-	`"deposit_address":"","crypto_amount":"0","received_amount":"0","usd_amount":"49.23","price_amount":"45.5",` +
-	`"price_currency":"EUR","price_rate":"1.082","amount_due_usd":"49.23","fees_paid_by_customer":false,` +
-	`"settlement":"custodial","received_usd":"0","rate_locked":"0","deposits":[],` +
+	`"deposit_address":"","crypto_amount":"0","crypto_received":"0","currency":"EUR","amount":"45.5",` +
+	`"amount_due":"45.5","fees_paid_by_customer":false,` +
+	`"settlement":"custodial","amount_received":"0","rate_locked":"0","deposits":[],` +
 	`"expires_at":"2026-10-10T13:00:00Z","created_at":"2026-10-10T12:00:00Z","network_fee_note":"","qr_payload":""}`
 
 func TestPaymentsCreatePrice(t *testing.T) {
 	c, rec := fakeGateway(t, http.StatusCreated, testPriced)
-	p, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-10", PriceAmount: "45.50", PriceCurrency: "EUR"})
+	p, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-10", Amount: "45.50", Currency: "EUR"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The price goes as decimal strings, and no amount_usd with it.
-	if want := map[string]any{"order_id": "ORD-10", "price_amount": "45.50", "price_currency": "EUR"}; !reflect.DeepEqual(rec.body, want) {
+	// The price goes as a decimal string, with its currency.
+	if want := map[string]any{"order_id": "ORD-10", "amount": "45.50", "currency": "EUR"}; !reflect.DeepEqual(rec.body, want) {
 		t.Errorf("body %v, want %v", rec.body, want)
 	}
-	if p.PriceAmount != "45.5" || p.PriceCurrency != "EUR" || p.PriceRate != "1.082" || p.USDAmount != "49.23" {
+	if p.Currency != "EUR" || p.Amount != "45.5" || p.AmountDue != "45.5" || p.AmountExtra != "" {
 		t.Errorf("payment %+v", p)
 	}
 	// Every field the gateway sent is in the Payment.
@@ -455,15 +455,15 @@ func TestPaymentsCreatePrice(t *testing.T) {
 	if err := json.Unmarshal(back, &got); err != nil || !reflect.DeepEqual(got, sent) {
 		t.Errorf("payment %s, want %s (%v)", back, testPriced, err)
 	}
-	// Priced in dollars: amount_usd as before, and none of the price fields.
-	if _, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-11", AmountUSD: "10"}); err != nil {
+	// Without a currency the price is in US dollars, and none is sent.
+	if _, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-11", Amount: "10"}); err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]any{"order_id": "ORD-11", "amount_usd": "10"}; !reflect.DeepEqual(rec.body, want) {
+	if want := map[string]any{"order_id": "ORD-11", "amount": "10"}; !reflect.DeepEqual(rec.body, want) {
 		t.Errorf("body %v, want %v", rec.body, want)
 	}
 	var dollars Payment
-	if err := json.Unmarshal([]byte(testChosen), &dollars); err != nil || dollars.PriceAmount != "" || dollars.PriceCurrency != "" || dollars.PriceRate != "" {
+	if err := json.Unmarshal([]byte(testChosen), &dollars); err != nil || dollars.Currency != "USD" || dollars.Amount != "10" || dollars.AmountDue != "10" {
 		t.Errorf("a payment in dollars: %+v %v", dollars, err)
 	}
 }
@@ -473,15 +473,15 @@ func TestPaymentsCreatePriceErrors(t *testing.T) {
 		status  int
 		message string
 	}{
-		{http.StatusBadRequest, "give amount_usd, or price_amount and price_currency: not both"},
-		{http.StatusBadRequest, "price_currency must be the ISO 4217 code of a currency (EUR, GBP, NGN…)"},
-		{http.StatusServiceUnavailable, "exchange rate unavailable for price_currency: try again shortly"},
+		{http.StatusBadRequest, "amount must be > 0"},
+		{http.StatusBadRequest, "currency must be the ISO 4217 code of a currency (USD, EUR, GBP, NGN…)"},
+		{http.StatusServiceUnavailable, "exchange rate unavailable for currency: try again shortly"},
 	}
 	for _, tc := range cases {
 		reply, _ := json.Marshal(map[string]string{"error": tc.message})
 		c, _ := fakeGateway(t, tc.status, string(reply))
 		var perr *Error
-		_, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-12", PriceAmount: "45.50", PriceCurrency: "EUR"})
+		_, err := c.Payments.Create(context.Background(), &PaymentParams{OrderID: "ORD-12", Amount: "45.50", Currency: "EUR"})
 		if !errors.As(err, &perr) || perr.Status != tc.status || perr.Message != tc.message {
 			t.Errorf("%d: err %v", tc.status, err)
 		}
@@ -550,7 +550,7 @@ func TestPaymentsList(t *testing.T) {
 
 func TestDepositFields(t *testing.T) {
 	// Every field the gateway sends for a deposit survives decoding.
-	const deposit = `{"tx_id":"c19240","token":"USDT_TRC20","chain":"tron","amount":"49.9","usd_value":"49.9","counted":true,` +
+	const deposit = `{"tx_id":"c19240","token":"USDT_TRC20","chain":"tron","amount":"49.9","value":"49.9","counted":true,` +
 		`"late":true,"status":"failed","seen_at":"2026-10-10T09:03:02.418Z","confirmed_at":"2026-10-10T09:04:03.77Z",` +
 		`"from":"TL8wHk","block":79412538,"made_at":"2026-10-10T09:02:57Z","failed_at":"2026-10-10T15:03:02Z","fail_reason":"confirmation timeout"}`
 	var d Deposit

@@ -33,7 +33,7 @@ func main() {
 func checkout(w http.ResponseWriter, r *http.Request) {
 	payment, err := client.Payments.Create(r.Context(), &payitgo.PaymentParams{
 		OrderID:    "ORD-1001",   // your order id: safe to retry
-		AmountUSD:  "19.99",      // decimal string
+		Amount:     "19.99",      // decimal string, in US dollars unless Currency says otherwise
 		// Token: "USDT_TRC20",   // optional: without it the customer picks the coin
 		SuccessURL: "https://yourdomain.com/thanks",
 	})
@@ -66,24 +66,26 @@ a live key when the account owner has turned live mode on. A key does not say it
 (the dashboard shows a Test or Live badge next to it): `client.IsLive(ctx)` asks payitgo,
 once.
 
-## Prices in other currencies
+## Prices in your own currency
 
-To price a payment in your own currency, give `PriceAmount` and `PriceCurrency` (an ISO 4217
-code such as `EUR`, `GBP` or `NGN`) instead of `AmountUSD`. payitgo converts the price into
-dollars at the rate of the moment, and the payment keeps both:
+A payment is priced in US dollars unless you give `Currency`, an ISO 4217 code such as `EUR`,
+`GBP` or `NGN` (any case). Every figure on the payment is then in that currency: `Amount` (your
+price), `AmountDue` (what the customer pays: the price, plus the fees when you pass them on),
+`AmountReceived` (what has arrived so far), each deposit's `Value`, each coin's `Minimum` and
+`NetworkFee` in `TokenOptions`, and `RateLocked` (the coin's price). Only `CryptoAmount` and
+`CryptoReceived` are in the coin.
 
 ```go
 payment, err := client.Payments.Create(ctx, &payitgo.PaymentParams{
-	OrderID: "ORD-1002", PriceAmount: "45.50", PriceCurrency: "EUR", // decimal string, any case
+	OrderID: "ORD-1002", Amount: "45.50", Currency: "EUR", // decimal string; any case
 })
-// payment.PriceAmount "45.5", payment.PriceCurrency "EUR",
-// payment.PriceRate "1.082" (dollars per euro), payment.USDAmount "49.23"
+// payment.Currency "EUR", payment.Amount "45.5", payment.AmountDue "45.5"
 ```
 
-Everything else (`USDAmount`, `CryptoAmount`, fees, minimums) stays in dollars; a payment
-priced in dollars has empty `Price…` fields. Give `AmountUSD` or the pair, not both (`400`).
-When no exchange rate can be had, `Create` fails with a `503` (`exchange rate unavailable for
-price_currency: try again shortly`) once the client's retries are spent: try again shortly.
+payitgo converts at the rate of the moment. When no exchange rate can be had, `Create` fails
+with a `503` (`exchange rate unavailable for currency: try again shortly`) once the client's
+retries are spent: try again shortly. A payment link priced in a coin has that coin as its
+`Currency` (`"ETH"`), and its figures in the coin.
 
 ## Your own payment page
 
@@ -100,7 +102,7 @@ needed.
   minutes away.
 
 ```go
-payment, err := client.Payments.Create(ctx, &payitgo.PaymentParams{OrderID: "ORD-1", AmountUSD: "10"})
+payment, err := client.Payments.Create(ctx, &payitgo.PaymentParams{OrderID: "ORD-1", Amount: "10"})
 // your page shows payment.TokenOptions; the customer picks one
 chosen, err := client.Payments.SelectToken(ctx, payment.ID, "USDT_TRC20") // or your order id
 // render chosen.DepositAddress, chosen.CryptoAmount, chosen.QRPayload, chosen.ExpiresAt
@@ -121,7 +123,7 @@ outcome and payitgo plays its deposits, status changes and webhooks a few second
 // Choose the outcome when you create the payment (with Token it starts at once,
 // without it once the coin is chosen)…
 payment, err := client.Payments.Create(ctx, &payitgo.PaymentParams{
-	OrderID: "TEST-1", AmountUSD: "10", Token: "USDT_TRC20", Simulate: payitgo.OutcomeConfirmed,
+	OrderID: "TEST-1", Amount: "10", Token: "USDT_TRC20", Simulate: payitgo.OutcomeConfirmed,
 })
 
 // …or later, on a payment you already have (its id or your order id).
@@ -150,7 +152,7 @@ _, err := client.Webhooks.Set(ctx, "https://api.yourdomain.com/payitgo/ipn")
 
 // Or per payment: its events go there instead of the webhook's URL.
 _, err = client.Payments.Create(ctx, &payitgo.PaymentParams{
-	OrderID: "ORD-1", AmountUSD: "10", WebhookURL: "https://api.yourdomain.com/orders/ipn",
+	OrderID: "ORD-1", Amount: "10", WebhookURL: "https://api.yourdomain.com/orders/ipn",
 })
 
 // Or as the client's default for every payment it creates (a payment's own WebhookURL wins):
@@ -424,13 +426,13 @@ client, err := payitgo.NewClient(apiKey,
 )
 
 client.IsLive(ctx)                                // (false, nil) for a test key: asks payitgo once
-client.Payments.Create(ctx, &payitgo.PaymentParams{...}) // OrderID, AmountUSD (or PriceAmount + PriceCurrency), Token, …, WebhookURL, Simulate
+client.Payments.Create(ctx, &payitgo.PaymentParams{...}) // OrderID, Amount, Currency, Token, …, WebhookURL, Simulate
 client.Payments.SelectToken(ctx, paymentID, token) // or your order id: the payment with its coin
 client.Payments.Simulate(ctx, paymentID, payitgo.OutcomeConfirmed) // test keys: plays the outcome
 client.Payments.Get(ctx, paymentID)               // or your order id
 client.Payments.List(ctx, &payitgo.ListParams{Status: payitgo.StatusConfirmed, StoreID: storeID, Limit: 50})
-client.Tokens.List(ctx, nil)                                            // every token
-client.Tokens.List(ctx, &payitgo.TokenListParams{AmountUSD: "49.90"})    // the coins a $49.90 payment offers, with AmountDueUSD
+client.Tokens.List(ctx, nil)                                            // every token, its figures in US dollars
+client.Tokens.List(ctx, &payitgo.TokenListParams{Amount: "49.90", Currency: "EUR"}) // the coins a 49.90 EUR payment offers, with AmountDue
 client.Checkout.Get(ctx, checkoutToken)           // public payer view
 client.Payouts.Request(ctx, &payitgo.PayoutParams{...})        // Reference, Asset, Address, Amount, Name, …, Claim, ClaimAssets: *PayoutItem
 client.Payouts.Retrieve(ctx, itemID)                            // *PayoutItem
@@ -471,7 +473,7 @@ Amounts are decimal strings (`"19.99"`), never floats.
 ```go
 var perr *payitgo.Error
 if errors.As(err, &perr) {
-	log.Println(perr.Status, perr.Message) // 400 "minimum payment in BTC is $10 right now (network fees)"
+	log.Println(perr.Status, perr.Message) // 400 "minimum payment in BTC is $10.00 right now (network fees)"
 }
 if errors.Is(err, payitgo.ErrSignature) { /* err says why: signature does not match, timestamp outside the tolerance, … */ }
 ```

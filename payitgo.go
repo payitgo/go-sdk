@@ -2,7 +2,7 @@
 //
 //	client, err := payitgo.NewClient(os.Getenv("PAYITGO_KEY"))
 //	payment, err := client.Payments.Create(ctx, &payitgo.PaymentParams{
-//		OrderID: "ORD-1001", AmountUSD: "10", Token: "USDT_TRC20",
+//		OrderID: "ORD-1001", Amount: "10", Token: "USDT_TRC20",
 //	})
 //	// send the customer to payment.CheckoutURL; fulfil on the payment.confirmed webhook
 //
@@ -81,11 +81,11 @@ type Deposit struct {
 	TxID  string `json:"tx_id"`
 	Token string `json:"token"` // the asset that arrived
 	Chain string `json:"chain"`
-	// Amount is in Token; USDValue is its dollar value.
-	Amount   string `json:"amount"`
-	USDValue string `json:"usd_value"`
-	Counted  bool   `json:"counted"`        // counts toward the payment
-	Late     bool   `json:"late,omitempty"` // arrived after the payment had closed
+	// Amount is in Token; Value is its value in the payment's Currency.
+	Amount  string `json:"amount"`
+	Value   string `json:"value"`
+	Counted bool   `json:"counted"`        // counts toward the payment
+	Late    bool   `json:"late,omitempty"` // arrived after the payment had closed
 	// Status is pending (confirming), confirmed (final and credited) or failed.
 	Status      string     `json:"status"`
 	SeenAt      time.Time  `json:"seen_at"`
@@ -132,22 +132,31 @@ type Payment struct {
 	// Token and Chain are empty until the customer chooses the coin, from
 	// TokenOptions, which stay while the coin can still change.
 	// PreviousCoins are the coins chosen before it.
-	Token              string            `json:"token"`
-	Chain              string            `json:"chain"`
-	TokenOptions       []TokenInfo       `json:"token_options,omitempty"`
-	PreviousCoins      []PreviousCoin    `json:"previous_coins,omitempty"`
-	DepositAddress     string            `json:"deposit_address"`
-	DestinationTag     *uint32           `json:"destination_tag,omitempty"`
-	CryptoAmount       string            `json:"crypto_amount"`
-	ReceivedAmount     string            `json:"received_amount"`
-	USDAmount          string            `json:"usd_amount"`               // your price
-	PriceAmount        string            `json:"price_amount,omitempty"`   // your price in another currency, when you gave one (PaymentParams.PriceAmount)
-	PriceCurrency      string            `json:"price_currency,omitempty"` // its ISO 4217 code, upper case: "EUR"
-	PriceRate          string            `json:"price_rate,omitempty"`     // dollars per unit of PriceCurrency that USDAmount was converted at
-	AmountDueUSD       string            `json:"amount_due_usd"`           // what the customer pays: the price, plus the fees when you pass them on
+	Token          string         `json:"token"`
+	Chain          string         `json:"chain"`
+	TokenOptions   []TokenInfo    `json:"token_options,omitempty"`
+	PreviousCoins  []PreviousCoin `json:"previous_coins,omitempty"`
+	DepositAddress string         `json:"deposit_address"`
+	DestinationTag *uint32        `json:"destination_tag,omitempty"`
+	// CryptoAmount is what the customer sends, in Token; CryptoReceived what
+	// has arrived in it.
+	CryptoAmount   string `json:"crypto_amount"`
+	CryptoReceived string `json:"crypto_received"`
+	// Currency is what the payment was priced in: an ISO 4217 code, upper
+	// case ("USD" unless PaymentParams.Currency gave another), or the coin of
+	// a payment link priced in a coin. Every figure below is in it: Amount is
+	// your price; AmountDue what the customer pays, the price plus the fees
+	// when you pass them on; AmountReceived what has arrived so far;
+	// AmountExtra the part of AmountDue paid only to reach the exchange's
+	// minimum, which you receive (empty when there is none); RateLocked the
+	// coin's price, locked when the coin was chosen.
+	Currency           string            `json:"currency"`
+	Amount             string            `json:"amount"`
+	AmountDue          string            `json:"amount_due"`
+	AmountReceived     string            `json:"amount_received"`
+	AmountExtra        string            `json:"amount_extra,omitempty"`
 	FeesPaidByCustomer bool              `json:"fees_paid_by_customer"`
-	Settlement         string            `json:"settlement"`   // "custodial" (your balance) or "direct" (your payout address)
-	ReceivedUSD        string            `json:"received_usd"` // dollar value of the deposits that count
+	Settlement         string            `json:"settlement"` // "custodial" (your balance) or "direct" (your payout address)
 	RateLocked         string            `json:"rate_locked"`
 	TxID               string            `json:"tx_id,omitempty"`
 	Overpaid           bool              `json:"overpaid,omitempty"`
@@ -168,10 +177,9 @@ type Payment struct {
 	WebhookURL         string            `json:"webhook_url,omitempty"` // where its events go instead of the webhook's URL
 }
 
-// PaymentParams creates a payment. OrderID is required, and the price: either
-// AmountUSD, or PriceAmount in PriceCurrency (an ISO 4217 code such as "EUR",
-// "GBP" or "NGN"), which payitgo converts into dollars at the rate of the
-// moment. Leave Token empty to let the customer choose the coin on the
+// PaymentParams creates a payment. OrderID is required, and Amount, the
+// price in Currency: an ISO 4217 code such as "EUR", "GBP" or "NGN" (any
+// case), US dollars when empty. Leave Token empty to let the customer choose the coin on the
 // checkout page, from Tokens (default: every token the amount reaches the
 // minimum of). WebhookURL (https) gets the payment's events instead of the
 // webhook's URL, signed with the same secret; empty means the client's
@@ -179,9 +187,8 @@ type Payment struct {
 // outcome on the test payment once it has its coin.
 type PaymentParams struct {
 	OrderID       string            `json:"order_id"`
-	AmountUSD     string            `json:"amount_usd,omitempty"`     // decimal, e.g. "19.99"
-	PriceAmount   string            `json:"price_amount,omitempty"`   // decimal, e.g. "45.50": instead of AmountUSD
-	PriceCurrency string            `json:"price_currency,omitempty"` // with PriceAmount, e.g. "EUR"
+	Amount        string            `json:"amount"`             // decimal, e.g. "19.99"
+	Currency      string            `json:"currency,omitempty"` // e.g. "EUR"; US dollars when empty
 	Token         string            `json:"token,omitempty"`
 	Tokens        []string          `json:"tokens,omitempty"`
 	Description   string            `json:"description,omitempty"`
@@ -213,17 +220,22 @@ type PaymentList struct {
 	Offset   int       `json:"offset"`
 }
 
-// TokenInfo is a token a customer can pay with. MinUSD and NetworkFeeUSD
-// move with the network's fees.
+// TokenInfo is a token a customer can pay with. Its figures are in the
+// listing's currency: a payment's own for its TokenOptions, the one
+// TokensService.List was asked for (US dollars without one). Minimum and
+// NetworkFee move with the network's fees.
 type TokenInfo struct {
-	Token         string `json:"token"`
-	Chain         string `json:"chain"`
-	MinUSD        string `json:"min_usd"`
-	NetworkFeeUSD string `json:"network_fee_usd"`
-	// AmountDueUSD, in a payment's TokenOptions (or a token listing with an
-	// amount) when fees are passed on, is what the customer pays in this token.
-	AmountDueUSD string `json:"amount_due_usd,omitempty"`
-	FeeNote      string `json:"fee_note"`
+	Token      string `json:"token"`
+	Chain      string `json:"chain"`
+	Minimum    string `json:"minimum"`
+	NetworkFee string `json:"network_fee"`
+	// AmountDue, in a payment's TokenOptions (or a token listing with an
+	// amount) when fees are passed on, is what the customer pays in this
+	// token; AmountExtra the part of it paid only to reach the exchange's
+	// minimum, which the merchant receives.
+	AmountDue   string `json:"amount_due,omitempty"`
+	AmountExtra string `json:"amount_extra,omitempty"`
+	FeeNote     string `json:"fee_note"`
 }
 
 // Error is a request the API refused. Status is the HTTP status, or 0 for a
@@ -414,21 +426,36 @@ func (s *PaymentsService) List(ctx context.Context, p *ListParams) (*PaymentList
 // TokensService lists what customers can pay with.
 type TokensService struct{ c *Client }
 
-// TokenListParams narrows a token listing; nil lists every token.
+// TokenListParams narrows a token listing; nil lists every token, in US
+// dollars.
 type TokenListParams struct {
-	// AmountUSD, when set, lists only the tokens a payment of that amount
-	// offers (its TokenOptions), each with AmountDueUSD when fees are passed on.
-	AmountUSD string
+	// Amount, when set, lists only the tokens a payment of that amount
+	// offers (its TokenOptions), each with AmountDue when fees are passed on.
+	Amount string
+	// Currency is the ISO 4217 code that Amount and every figure listed are
+	// in (any case); US dollars when empty.
+	Currency string
 }
 
-// List returns the tokens of the key's mode.
+// List returns the tokens of the key's mode, their figures in the currency
+// asked for.
 func (s *TokensService) List(ctx context.Context, p *TokenListParams) ([]TokenInfo, error) {
 	var out struct {
-		Tokens []TokenInfo `json:"tokens"`
+		Currency string      `json:"currency"`
+		Tokens   []TokenInfo `json:"tokens"`
 	}
 	path := "/v1/tokens"
-	if p != nil && p.AmountUSD != "" {
-		path += "?" + url.Values{"amount_usd": {p.AmountUSD}}.Encode()
+	if p != nil {
+		q := url.Values{}
+		if p.Amount != "" {
+			q.Set("amount", p.Amount)
+		}
+		if p.Currency != "" {
+			q.Set("currency", p.Currency)
+		}
+		if len(q) > 0 {
+			path += "?" + q.Encode()
+		}
 	}
 	err := s.c.do(ctx, http.MethodGet, path, nil, &out, true)
 	return out.Tokens, err
