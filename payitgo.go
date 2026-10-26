@@ -278,6 +278,7 @@ type Client struct {
 	PayoutBatches *PayoutBatchesService
 	PayoutWallets *PayoutWalletsService
 	Events        *EventsService
+	Realtime      *RealtimeService
 
 	apiKey        string
 	baseURL       string
@@ -342,6 +343,7 @@ func NewClient(apiKey string, opts ...Option) (*Client, error) {
 	c.PayoutBatches = &PayoutBatchesService{c}
 	c.PayoutWallets = &PayoutWalletsService{c}
 	c.Events = &EventsService{c}
+	c.Realtime = &RealtimeService{c}
 	return c, nil
 }
 

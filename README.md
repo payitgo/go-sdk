@@ -215,6 +215,29 @@ http.HandleFunc("/payitgo/ipn", func(w http.ResponseWriter, r *http.Request) {
 **Testing it.** `client.Webhooks.Test(ctx)` queues a signed `ping` event to the webhook's
 URL and returns its delivery (`400` when no URL is set).
 
+## Follow payments live
+
+Show a payment moving while the customer watches: `client.Realtime.Listen` keeps one
+connection to payitgo and hands you every change to your key's payments the moment payitgo
+knows it (a deposit seen, each confirmation, the final status), with nothing to poll. It
+reconnects by itself and resumes a short drop without missing an update. Fulfil orders
+from the webhooks; use this for screens.
+
+```go
+go client.Realtime.Listen(ctx, payitgo.Listener{
+	Payment: func(u *payitgo.PaymentUpdate) {
+		// u.Type: payment.detecting, payment.confirmations, payment.confirmed…
+		pushToCheckoutPage(u.Payment.OrderID, u.Payment) // your code: return quickly
+	},
+	Connected: func(resumed bool) {
+		if !resumed {
+			refreshOpenOrders() // your code: an update may have been missed while away
+		}
+	},
+	Disconnected: func(err error) { log.Println(err) }, // it connects again by itself
+})
+```
+
 ## Payouts
 
 Pay your own clients (withdrawals from your platform, payroll, prizes) from your **payout
@@ -464,6 +487,7 @@ payitgo.ConstructEventWithTolerance(body, header, secret, tolerance)
 client.Events.List(ctx, &payitgo.EventListParams{Types: []string{"payout_item.*"}, After: lastID}) // *EventPage: Events, HasMore
 event.Payment(); event.PayoutBatch(); event.PayoutItem(); event.PayoutWithdrawal() // decode event.Data
 event.PayoutSchedule(); event.PayoutScheduleFunding()                             // payout_schedule.* events
+client.Realtime.Listen(ctx, payitgo.Listener{Payment: fn, Connected: fn, Disconnected: fn}) // every payment change, live, until ctx ends
 ```
 
 Amounts are decimal strings (`"19.99"`), never floats.
